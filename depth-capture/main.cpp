@@ -15,6 +15,7 @@
 #define DEPTH 'q'
 #define ACCUM 'w'
 #define COLOR 'e'
+#define ALL 'a'
 //Mesh capture keys
 #define DEPTH_MESH 'Q'
 #define ACCUM_MESH 'W'
@@ -49,6 +50,9 @@ static int countCOLOR = 0;
 static int countACCUM = 0;
 static int countDEPTHMESH = 0;
 static int countACCUMMESH = 0;
+
+static std::string captureName = "cap";
+static int captureStep = 30;
 
 static int framesLeft = ACCUM_SIZE;     //When accumulating multiple frames, this is used as counter
 
@@ -155,7 +159,7 @@ void show_rgb (uchar *rgb) {
 
 int save_depth (){
     std::ostringstream oss;
-    oss << "depth_" << countDEPTH << ".png";
+    oss << captureName << "_depth_" << countDEPTH*captureStep << ".png";
     imwrite(oss.str(), depthMat);
     printf("%s saved!\n", oss.str().c_str());
     fflush(stdout);
@@ -173,7 +177,7 @@ int save_depth (){
 int save_rgb() {
     Mat imgBGR;
     std::ostringstream oss;
-    oss << "color_" << countCOLOR << ".png";
+    oss << captureName << "_color_" << countCOLOR*captureStep << ".png";
     cvtColor(imgRGB, imgBGR, CV_RGB2BGR);
     imwrite(oss.str(), imgBGR);
     printf("%s saved!\n", oss.str().c_str());
@@ -192,9 +196,9 @@ int save_rgb() {
 int save_ply(Mat depthMat, int mesh_type, int count) {
     std::ostringstream oss;
     if(mesh_type == MESH_TYPE_REGULAR){
-        oss << "mesh_" << count << ".ply";
+        oss << captureName << "_mesh_" << count*captureStep << ".ply";
     }else if(mesh_type == MESH_TYPE_ACCUMULATED){
-        oss << "mesh_" << count << "_accum.ply";
+        oss << captureName << "_accummesh_" << count*captureStep << ".ply";
     }
     FILE *fp;
 
@@ -299,9 +303,10 @@ void depthCallback(freenect_device *dev, void *depth, uint32_t timestamp) {
                 save_ply(accumulatedDepthMat, MESH_TYPE_ACCUMULATED, countACCUMMESH);
                 captureACCUMMESH = 0;
                 ++countACCUMMESH;
-            }else{
+            }
+            if(captureACCUM){
                 std::ostringstream oss;
-                oss << "depth_" << countACCUM << "_accum.png";
+                oss << captureName << "_accumdepth_" << countACCUM*captureStep << ".png";
                 imwrite(oss.str(),accumulatedDepthMat);
                 printf("%s saved!\n", oss.str().c_str());
                 fflush(stdout);
@@ -393,6 +398,13 @@ void *freenect_threadfunc(void *arg) {
         if (key == ACCUM_MESH) {
             captureACCUMMESH = 1;
         }
+        if (key == ALL) {
+            captureDEPTH = 1;
+            captureCOLOR = 1;
+            captureACCUM = 1;
+            captureDEPTHMESH = 1;
+            captureACCUMMESH = 1;
+        }
     }
 
     printf("\nShutting down streams...");
@@ -446,11 +458,24 @@ int start_kinect (int argc, char **argv) {
     int device_number = 0;
 
     // CHECK DEVICES
-    if (argc > 1)
+    if (argc > 1){
         device_number = atoi(argv[1]);
+    }
 
-    if (num_devices < 1)
+    if (argc > 2){
+        captureName = std::string(argv[2]);
+    }
+
+    if (argc > 3){
+        captureStep = atoi(argv[3]);
+    }
+
+    printf("Capture Parameters: Name: %s; Step: %d", captureName.c_str(), captureStep);
+    fflush(stdout);
+
+    if (num_devices < 1){
         return 1;
+    }
 
     // CALL DEVICE
     if (freenect_open_device(context, &device, device_number) < 0) {
