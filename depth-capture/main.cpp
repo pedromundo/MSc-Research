@@ -361,7 +361,7 @@ void *freenect_threadfunc(void *arg) {
     freenect_set_tilt_degs(device,freenect_angle);
 
     // SET STATE OF THE LED
-    freenect_set_led(device,LED_GREEN);
+    freenect_set_led(device,LED_BLINK_RED_YELLOW);
 
     // SET CALLBACK FOR DEPTH AND VIDEO INFORMATION RECEIVED EVENT
     freenect_set_depth_callback(device, depthCallback);
@@ -470,7 +470,7 @@ int start_kinect (int argc, char **argv) {
         captureStep = atoi(argv[3]);
     }
 
-    printf("Capture Parameters: Name: %s; Step: %d", captureName.c_str(), captureStep);
+    printf("Capture Parameters: Name: %s; Step: %d\n", captureName.c_str(), captureStep);
     fflush(stdout);
 
     if (num_devices < 1){
