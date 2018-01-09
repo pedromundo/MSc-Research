@@ -1,29 +1,28 @@
 #include "libfreenect.h"
-#define ACCUM_SIZE 30
-#define BILATERAL
+
 #include <opencv2/opencv.hpp>
+#include <sstream>
 
 #include <cstdio>
 #include <cstdlib>
 #include <cmath>
 #include <pthread.h>
 
-#include <sstream>
-
+//Escape closes the applications
 #define CLOSE 27
 //Image capture keys
 #define DEPTH 'q'
 #define ACCUM 'w'
 #define COLOR 'e'
-#define ALL 'a'
+#define ALL 'A'
 //Mesh capture keys
 #define DEPTH_MESH 'Q'
 #define ACCUM_MESH 'W'
-//TODO: make this a set of consts or an enum
+
+//Constants
 #define MESH_TYPE_REGULAR 1
-#define MESH_TYPE_BILATERAL 2
-#define MESH_TYPE_ACCUMULATED 3
-#define MESH_TYPE_BILATERALACCUMULATED 4
+#define MESH_TYPE_ACCUMULATED 2
+#define ACCUM_SIZE 30
 
 using namespace cv;
 
@@ -33,45 +32,45 @@ pthread_mutex_t mutex_capture = PTHREAD_MUTEX_INITIALIZER;
 
 freenect_context *context;
 freenect_device *device;
-freenect_frame_mode depthFrame;
-freenect_frame_mode rgbFrame;
+freenect_frame_mode depth_frame;
+freenect_frame_mode rgb_frame;
 
 static int freenect_angle = 0;
 
 //Control Variables
-static int captureDEPTH = 0;
-static int captureCOLOR = 0;
-static int captureACCUM = 0;
-static int captureDEPTHMESH = 0;
-static int captureACCUMMESH = 0;
+static int capture_depth = 0;
+static int capture_color = 0;
+static int capture_accum = 0;
+static int capture_depth_mesh = 0;
+static int capture_accum_mesh = 0;
 
-static int countDEPTH = 0;
-static int countCOLOR = 0;
-static int countACCUM = 0;
-static int countDEPTHMESH = 0;
-static int countACCUMMESH = 0;
+static int count_depth = 0;
+static int count_color = 0;
+static int count_accum = 0;
+static int count_depth_mesh = 0;
+static int count_accum_mesh = 0;
 
-static std::string captureName = "cap";
-static int captureStep = 30;
+static std::string capture_name = "cap";
+static int capture_step = 30;
 
-static int framesLeft = ACCUM_SIZE;     //When accumulating multiple frames, this is used as counter
+static int frames_left = ACCUM_SIZE;     //When accumulating multiple frames, this is used as counter
 
 //Depth thresholds in mm
-int depthMin = 300;
-int depthMax = 800;
+int depth_min = 300;
+int depth_max = 800;
 
 //OpenCV variables
 static Size kinect;
-static Mat imgRGB;		// for RGB image video
-static Mat depthMat;    //raw depth data
-//bilateral filtering
+static Mat img_rgb_mat;		// for RGB image video
+static Mat depth_mat;    //raw depth data
+static Mat normal_mat;    //raw normal data
+
 //TODO: I dont need all of these since conversion works in-place
-static Mat depthMatFiltered;      //filtered depth data
-static Mat depthMatFloat;         //depth data converted to float
-static Mat depthMatFloatFiltered; //filtered depth data converted to float
+static Mat depth_mat_filtered;      //filtered depth data
+static Mat depth_mat_float;         //depth data converted to float
+static Mat depth_mat_float_filtered; //filtered depth data converted to float
 //frame accumulation
-static Mat accumulatedDepths[ACCUM_SIZE]; //depth frames for accumulation
-static Mat accumulatedDepthMat;   //final accumulated depth frame
+static Mat depth_mat_accumulated;   //final accumulated depth frame
 
 /********************************************************************************************************** 
 
@@ -114,28 +113,26 @@ inline double lerp(double a, double b, double f)
 // ---------------------------------------------------------
 
 void show_depth (uint16_t *depth) {	
+    Mat depth_mat_tmp = Mat(kinect, CV_8UC3);
     int i, j;
-    Mat imgDEPTH = Mat(kinect, CV_8UC3);
-
     for ( i = 0; i < kinect.height; i++)
         for ( j = 0; j < kinect.width; j++) {
-            uint16_t depth_in_mm = depthMat.at<uint16_t>(i,j);
-            if (depth_in_mm != 0 && depth_in_mm >= depthMin && depth_in_mm <= depthMax) {
-                uint16_t color = (uint16_t) lerp(255.0,0.0,(double) depth_in_mm/(depthMax));
-                Vec3b &pixelColor = imgDEPTH.at<Vec3b>(i,j);
-                pixelColor[0] = color;
-                pixelColor[1] = color;
-                pixelColor[2] = color;
+            uint16_t depth_in_mm = depth_mat.at<uint16_t>(i,j);
+            if (depth_in_mm != 0 && depth_in_mm >= depth_min && depth_in_mm <= depth_max) {
+                uint16_t color = (uint16_t) lerp(255.0,0.0,(double) depth_in_mm/(2048));
+                Vec3b &pixel_color = depth_mat_tmp.at<Vec3b>(i,j);
+                pixel_color[0] = color;
+                pixel_color[1] = color;
+                pixel_color[2] = color;
             } else {
-                Vec3b &pixelColor = imgDEPTH.at<Vec3b>(i,j);
-                pixelColor[0] = 0;
-                pixelColor[1] = 0;
-                pixelColor[2] = 0;
+                Vec3b &pixel_color = depth_mat_tmp.at<Vec3b>(i,j);
+                pixel_color[0] = 0;
+                pixel_color[1] = 0;
+                pixel_color[2] = 0;
             }
         }
-    imshow("DEPTH", imgDEPTH);
+    imshow("DEPTH", depth_mat_tmp);
 }
-
 
 // ---------------------------------------------------------
 // Name:		show_rgb
@@ -144,12 +141,11 @@ void show_depth (uint16_t *depth) {
 // ---------------------------------------------------------
 
 void show_rgb (uchar *rgb) {	
-    Mat imgBGR;
-    imgRGB = Mat(kinect,CV_8UC3,rgb);        
-    cvtColor(imgRGB, imgBGR, CV_RGB2BGR);
-    imshow("RGB", imgBGR);
+    Mat img_bgr_mat;
+    img_rgb_mat = Mat(kinect,CV_8UC3,rgb);        
+    cvtColor(img_rgb_mat, img_bgr_mat, CV_RGB2BGR);
+    imshow("RGB", img_bgr_mat);
 }
-
 
 // ---------------------------------------------------------
 // Name:		save_depth
@@ -159,14 +155,13 @@ void show_rgb (uchar *rgb) {
 
 int save_depth (){
     std::ostringstream oss;
-    oss << captureName << "_depth_" << countDEPTH*captureStep << ".png";
-    imwrite(oss.str(), depthMat);
+    oss << capture_name << "_depth_" << count_depth*capture_step << ".png";
+    imwrite(oss.str(), depth_mat);
     printf("%s saved!\n", oss.str().c_str());
     fflush(stdout);
-    ++countDEPTH;
+    ++count_depth;
     return 1;
 }
-
 
 // ---------------------------------------------------------
 // Name:		save_rgb
@@ -175,14 +170,14 @@ int save_depth (){
 // ---------------------------------------------------------
 
 int save_rgb() {
-    Mat imgBGR;
+    Mat img_bgr_mat;
     std::ostringstream oss;
-    oss << captureName << "_color_" << countCOLOR*captureStep << ".png";
-    cvtColor(imgRGB, imgBGR, CV_RGB2BGR);
-    imwrite(oss.str(), imgBGR);
+    oss << capture_name << "_color_" << count_color*capture_step << ".png";
+    cvtColor(img_rgb_mat, img_bgr_mat, CV_RGB2BGR);
+    imwrite(oss.str(), img_bgr_mat);
     printf("%s saved!\n", oss.str().c_str());
     fflush(stdout);
-    ++countCOLOR;
+    ++count_color;
     return 1;
 }
 
@@ -193,12 +188,12 @@ int save_rgb() {
 // with both depth and color information (still not working) 
 // ---------------------------------------------------------
 
-int save_ply(Mat depthMat, int mesh_type, int count) {
+int save_ply(Mat depth_mat, int mesh_type, int count) {
     std::ostringstream oss;
     if(mesh_type == MESH_TYPE_REGULAR){
-        oss << captureName << "_mesh_" << count*captureStep << ".ply";
+        oss << capture_name << "_mesh_" << count*capture_step << ".ply";
     }else if(mesh_type == MESH_TYPE_ACCUMULATED){
-        oss << captureName << "_accummesh_" << count*captureStep << ".ply";
+        oss << capture_name << "_accummesh_" << count*capture_step << ".ply";
     }
     FILE *fp;
 
@@ -213,18 +208,60 @@ int save_ply(Mat depthMat, int mesh_type, int count) {
     //iterate to count the number of vertices
     for (i = 0; i < kinect.height; i++){
         for (j = 0; j < kinect.width; j++) {
-            uint16_t z_in_mm = depthMat.at<uint16_t>(i,j);
-            if(z_in_mm != 0 && z_in_mm >= depthMin && z_in_mm <= depthMax){
+            uint16_t z_in_mm = depth_mat.at<uint16_t>(i,j);
+            if(z_in_mm != 0 && z_in_mm >= depth_min && z_in_mm <= depth_max){
                 ++num_vertices;
             }
         }
     }
 
-    /*depthMat.convertTo(depthMatFloat, CV_32FC1);
-    bilateralFilter(depthMatFloat, depthMatFloatFiltered, 36, 100, 100);
+    //simple normals via cross-product
+    normal_mat = Mat(depth_mat.size(), CV_32FC3);    
+    for(int x = 0; x < depth_mat.rows; ++x)
+    {
+        for(int y = 0; y < depth_mat.cols; ++y)
+        {
+            uint16_t right = depth_mat.at<uint16_t>(x+1, y), left = depth_mat.at<uint16_t>(x-1, y), down = depth_mat.at<uint16_t>(x, y+1), up = depth_mat.at<uint16_t>(x, y-1);
+
+            //threshold (as per Hinterstoisser et al (2011))
+            if(abs(depth_mat.at<uint16_t>(x, y) - right) > 20){
+                right = 0;
+            }
+            if(abs(depth_mat.at<uint16_t>(x, y) - left) > 20){
+                left = 0;
+            }
+            if(abs(depth_mat.at<uint16_t>(x, y) - down) > 20){
+                down = 0;
+            }
+            if(abs(depth_mat.at<uint16_t>(x, y) - up) > 20){
+                up = 0;
+            }
+
+            double dzdx = (right - left) / 2.0;
+            double dzdy = (down - up) / 2.0;
+
+            Vec3d d(-dzdx, -dzdy, 1.0);
+            Vec3d n = normalize(d);
+
+            normal_mat.at<Vec3f>(x, y) = n;
+        }
+    }
+
+    //blur the normals a little bit
+    GaussianBlur(normal_mat,normal_mat,Size(3,3),0.0,0.0);
+
+    //for visualization only
+    cv::Mat tmp;    
+    cv::normalize(normal_mat, tmp, 0, 1, cv::NORM_MINMAX);
+    cvtColor(tmp,tmp,CV_RGB2BGR);            
+    cv::imshow("Normal (debug)", tmp);
+
+    //bilateral filtering of the depth image
+    depth_mat.convertTo(depth_mat_float, CV_32FC1);
+    bilateralFilter(depth_mat_float, depth_mat_float_filtered, -1, 2, 2);
     printf("Bilateral Filter Done!\n");
-    depthMatFloatFiltered.convertTo(depthMatFiltered,CV_16UC1);
-    depthMat = Mat(depthMatFiltered);*/
+    depth_mat_float_filtered.convertTo(depth_mat_filtered,CV_16UC1);
+    depth_mat = Mat(depth_mat_filtered);
 
     //then a second time to write the .ply file
     fprintf(fp,"ply\n");
@@ -233,26 +270,31 @@ int save_ply(Mat depthMat, int mesh_type, int count) {
     fprintf(fp,"property float x\n");
     fprintf(fp,"property float y\n");
     fprintf(fp,"property float z\n");
+    fprintf(fp,"property float nx\n");
+    fprintf(fp,"property float ny\n");
+    fprintf(fp,"property float nz\n");
     fprintf(fp,"property uchar red\n");
     fprintf(fp,"property uchar green\n");
-    fprintf(fp,"property uchar blue\n");
-    //fprintf(fp,"element face 0\n");
-    //fprintf(fp,"property list uchar int vertex_indices\n");
+    fprintf(fp,"property uchar blue\n");    
     fprintf(fp,"end_header\n");
     for (i = 0; i < kinect.height; i++){
         for (j = 0; j < kinect.width; j++) {
-            uint16_t z_in_mm = depthMat.at<uint16_t>(i,j);
+            uint16_t z_in_mm = depth_mat.at<uint16_t>(i,j);
             double cx = 313.68782938, cy = 259.01834898, fx_inv = 1 / 526.37013657, fy_inv = fx_inv;
-            if(z_in_mm != 0 && z_in_mm >= depthMin && z_in_mm <= depthMax){
+            if(z_in_mm != 0 && z_in_mm >= depth_min && z_in_mm <= depth_max){
                 double vx = z_in_mm * (j - cx) * fx_inv;
                 double vy = -z_in_mm * (i - cy) * fy_inv;
-                fprintf(fp, "%.6lf ", (double)vx);
-                fprintf(fp, "%.6lf ", (double)vy);
-                fprintf(fp, "%.6lf ", (double)-z_in_mm);                
-                Vec3b rgbColor = imgRGB.at<Vec3b>(i,j);
-                fprintf(fp, "%d ", rgbColor[0]);
-                fprintf(fp, "%d ", rgbColor[1]);
-                fprintf(fp, "%d\n", rgbColor[2]);
+                fprintf(fp, "%.6lf ", (double) vx);
+                fprintf(fp, "%.6lf ", (double) vy);
+                fprintf(fp, "%.6lf ", (double) -z_in_mm);
+                Vec3f normal = normal_mat.at<Vec3f>(i,j);
+                fprintf(fp, "%.6lf ", (double) normal[0]);
+                fprintf(fp, "%.6lf ", (double) normal[1]);
+                fprintf(fp, "%.6lf ", (double) normal[2]);
+                Vec3b color = img_rgb_mat.at<Vec3b>(i,j);
+                fprintf(fp, "%d ", color[0]);
+                fprintf(fp, "%d ", color[1]);
+                fprintf(fp, "%d\n", color[2]);
             }
         }
     }
@@ -266,63 +308,56 @@ int save_ply(Mat depthMat, int mesh_type, int count) {
     return 1;
 }
 
-
 // ---------------------------------------------------------
 // Name:		depthCallback
 // ---------------------------------------------------------
 // Description:	callback that receives each depth frame.
 // ---------------------------------------------------------
 
-void depthCallback(freenect_device *dev, void *depth, uint32_t timestamp) {    
-    depthMat = Mat(kinect,CV_16UC1, depth);
+void depthCallback(freenect_device *dev, void *depth, uint32_t timestamp) {
+    depth_mat = Mat(kinect,CV_16UC1, depth);
     //Mesh Capture
-    if (captureDEPTHMESH){
+    if (capture_depth_mesh){
         pthread_mutex_lock(&mutex_capture);		//LOCK
-        save_ply(depthMat, MESH_TYPE_REGULAR, countDEPTHMESH);
-        captureDEPTHMESH = 0;
-        ++countDEPTHMESH;
+        save_ply(depth_mat, MESH_TYPE_REGULAR, count_depth_mesh);
+        capture_depth_mesh = 0;
+        ++count_depth_mesh;
         pthread_mutex_unlock(&mutex_capture);	//UNLOCK
     }
 
-    if ((captureACCUMMESH || captureACCUM) && framesLeft >= 0){
-        pthread_mutex_lock(&mutex_capture);		//LOCK
-        Mat(kinect,CV_16UC1,depth).copyTo(accumulatedDepths[ACCUM_SIZE-framesLeft--]);
-        if(framesLeft < 1){
-            Mat final;
-            accumulatedDepths[0].copyTo(final);
-            for(int i=1;i<ACCUM_SIZE;++i){
-                Mat mask;
-                final.convertTo(mask, CV_8UC1);
-                threshold(mask, mask, 0.1, UINT8_MAX, THRESH_BINARY_INV);
-                add(final, accumulatedDepths[i], final, mask);
-                //imshow("Final", final * 32);
-                waitKey(30);
+    if ((capture_accum_mesh || capture_accum) && frames_left >= 0){
+        pthread_mutex_lock(&mutex_capture);		//LOCK    
+        frames_left--;    
+        if(frames_left < 1){
+            depth_mat_accumulated = Mat::zeros(depth_mat.size(),CV_16UC1);            
+            for(int i=0;i<ACCUM_SIZE;++i){
+                depth_mat_accumulated = depth_mat_accumulated + depth_mat;
             }
-            accumulatedDepthMat = final;
-            if(captureACCUMMESH){
-                save_ply(accumulatedDepthMat, MESH_TYPE_ACCUMULATED, countACCUMMESH);
-                captureACCUMMESH = 0;
-                ++countACCUMMESH;
+            depth_mat_accumulated = depth_mat_accumulated/ACCUM_SIZE;
+            if(capture_accum_mesh){
+                save_ply(depth_mat_accumulated, MESH_TYPE_ACCUMULATED, count_accum_mesh);
+                capture_accum_mesh = 0;
+                ++count_accum_mesh;
             }
-            if(captureACCUM){
+            if(capture_accum){
                 std::ostringstream oss;
-                oss << captureName << "_accumdepth_" << countACCUM*captureStep << ".png";
-                imwrite(oss.str(),accumulatedDepthMat);
+                oss << capture_name << "_accumdepth_" << count_accum*capture_step << ".png";
+                imwrite(oss.str(),depth_mat_accumulated);
                 printf("%s saved!\n", oss.str().c_str());
                 fflush(stdout);
-                captureACCUM = 0;
-                ++countACCUM;
+                capture_accum = 0;
+                ++count_accum;
             }
-            framesLeft = ACCUM_SIZE;            
+            frames_left = ACCUM_SIZE;            
         }
         pthread_mutex_unlock(&mutex_capture);	//UNLOCK
     }
 
     //Image Capture/Display
-    if (!captureDEPTH)
+    if (!capture_depth){
         show_depth((uint16_t*)depth);
-    else {
-        captureDEPTH = 0;
+    } else {
+        capture_depth = 0;
         pthread_mutex_lock(&mutex_capture);		//LOCK
         save_depth();
         pthread_mutex_unlock(&mutex_capture);	//UNLOCK
@@ -337,16 +372,15 @@ void depthCallback(freenect_device *dev, void *depth, uint32_t timestamp) {
 // ---------------------------------------------------------
 
 void rgbCallback(freenect_device *dev, void *rgb, uint32_t timestamp) {
-    if (!captureCOLOR)
+    if (!capture_color)
         show_rgb((uchar*)rgb);
     else {
-        captureCOLOR = 0;
+        capture_color = 0;
         pthread_mutex_lock(&mutex_capture);		//LOCK
         save_rgb();
         pthread_mutex_unlock(&mutex_capture);	//UNLOCK
     }
 }
-
 
 // ---------------------------------------------------------
 // Name:		freenect_threadfunc
@@ -356,9 +390,8 @@ void rgbCallback(freenect_device *dev, void *rgb, uint32_t timestamp) {
 // ---------------------------------------------------------
 
 void *freenect_threadfunc(void *arg) {
-
     // SET THE TILT STATE OF DEVICE
-    freenect_set_tilt_degs(device,freenect_angle);
+    freenect_set_tilt_degs(device, freenect_angle);    
 
     // SET STATE OF THE LED
     freenect_set_led(device,LED_BLINK_RED_YELLOW);
@@ -368,11 +401,11 @@ void *freenect_threadfunc(void *arg) {
     freenect_set_video_callback(device, rgbCallback);
 
     // SET CURRENT MODE FOR DEPTH AND VIDEO. MODE CAN'T BE CHANGED WHILE STREAMING IS ACTIVE
-    depthFrame = freenect_find_depth_mode(FREENECT_RESOLUTION_MEDIUM, FREENECT_DEPTH_REGISTERED);
-    rgbFrame = freenect_find_video_mode(FREENECT_RESOLUTION_MEDIUM, FREENECT_VIDEO_RGB);
+    depth_frame = freenect_find_depth_mode(FREENECT_RESOLUTION_MEDIUM, FREENECT_DEPTH_REGISTERED);
+    rgb_frame = freenect_find_video_mode(FREENECT_RESOLUTION_MEDIUM, FREENECT_VIDEO_RGB);
 
-    freenect_set_depth_mode(device, depthFrame);
-    freenect_set_video_mode(device, rgbFrame);
+    freenect_set_depth_mode(device, depth_frame);
+    freenect_set_video_mode(device, rgb_frame);
 
     // START DEPTH AND VIDEO STREAM
     freenect_start_depth(device);
@@ -383,27 +416,27 @@ void *freenect_threadfunc(void *arg) {
     while((key = (uchar)cvWaitKey(1)) && freenect_process_events(context) >= 0) {
         if (key == CLOSE)
             break;
-        if (key == DEPTH) {
-            captureDEPTH = 1;
-        }
+        if (key == DEPTH) {            
+            capture_depth = 1;
+        }        
         if (key == COLOR) {
-            captureCOLOR = 1;
+            capture_color = 1;
         }
         if (key == ACCUM) {
-            captureACCUM = 1;
+            capture_accum = 1;
         }
         if (key == DEPTH_MESH) {
-            captureDEPTHMESH = 1;
+            capture_depth_mesh = 1;
         }
         if (key == ACCUM_MESH) {
-            captureACCUMMESH = 1;
+            capture_accum_mesh = 1;
         }
         if (key == ALL) {
-            captureDEPTH = 1;
-            captureCOLOR = 1;
-            captureACCUM = 1;
-            captureDEPTHMESH = 1;
-            captureACCUMMESH = 1;
+            capture_depth = 1;
+            capture_color = 1;
+            capture_accum = 1;
+            capture_depth_mesh = 1;
+            capture_accum_mesh = 1;
         }
     }
 
@@ -432,7 +465,6 @@ void *freenect_threadfunc(void *arg) {
 // ---------------------------------------------------------
 
 int start_kinect (int argc, char **argv) {
-
     printf("\nLoading Kinect Camera...");
 
     // START FREENECT CONTEXT
@@ -444,9 +476,7 @@ int start_kinect (int argc, char **argv) {
         printf("COMPLETE!\n");
     }
 
-
     // SET MESSAGE LOGGING
-    //freenect_set_log_level(context, FREENECT_LOG_DEBUG);
     freenect_set_log_level(context, FREENECT_LOG_ERROR);
 
     // SET SUBDEVICES TO BE CALLED
@@ -463,14 +493,14 @@ int start_kinect (int argc, char **argv) {
     }
 
     if (argc > 2){
-        captureName = std::string(argv[2]);
+        capture_name = std::string(argv[2]);
     }
 
     if (argc > 3){
-        captureStep = atoi(argv[3]);
+        capture_step = atoi(argv[3]);
     }
 
-    printf("Capture Parameters: Name: %s; Step: %d\n", captureName.c_str(), captureStep);
+    printf("Capture Parameters: Name: %s; Step: %d\n", capture_name.c_str(), capture_step);
     fflush(stdout);
 
     if (num_devices < 1){
@@ -495,19 +525,18 @@ int start_kinect (int argc, char **argv) {
 
 int main(int argc, char **argv)
 {
-
     namedWindow("RGB", CV_WINDOW_AUTOSIZE);
     namedWindow("DEPTH", CV_WINDOW_AUTOSIZE);
 
     //Trackbar
-    createTrackbar("Min Depth.", "DEPTH", &depthMin, FREENECT_DEPTH_MM_MAX_VALUE, NULL);
-    createTrackbar("Max Depth.", "DEPTH", &depthMax, FREENECT_DEPTH_MM_MAX_VALUE, NULL);
+    createTrackbar("Min Depth.", "DEPTH", &depth_min, FREENECT_DEPTH_MM_MAX_VALUE, NULL);
+    createTrackbar("Max Depth.", "DEPTH", &depth_max, FREENECT_DEPTH_MM_MAX_VALUE, NULL);
 
     kinect.width = 640;
     kinect.height = 480;
 
-    imgRGB = Mat(kinect, CV_8UC3);            
-    depthMat = Mat(kinect, CV_16UC1);
+    img_rgb_mat = Mat(kinect, CV_8UC3);            
+    depth_mat = Mat(kinect, CV_16UC1);
 
     // INITIALIZE KINECT DEVICE
     int problem = start_kinect(argc, argv);
