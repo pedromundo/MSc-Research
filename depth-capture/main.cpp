@@ -121,7 +121,7 @@ void show_depth (uint16_t *depth) {
         for ( j = 0; j < kinect.width; j++) {
             uint16_t depth_in_mm = depth_mat.at<uint16_t>(i,j);
             if (depth_in_mm != 0 && depth_in_mm >= depth_min && depth_in_mm <= depth_max) {
-                uint16_t color = (uint16_t) lerp(255.0,32.0,(double) depth_in_mm/8000);
+                uint16_t color = (uint16_t) lerp(255.0,32.0,(double) depth_in_mm/FREENECT_DEPTH_MM_MAX_VALUE);
                 Vec3b &pixel_color = depth_mat_tmp.at<Vec3b>(i,j);
                 pixel_color[0] = color;
                 pixel_color[1] = color;
@@ -161,7 +161,11 @@ int save_depth () {
     std::vector<int> compression_params;
     compression_params.push_back(CV_IMWRITE_PNG_COMPRESSION);
     compression_params.push_back(0);
-    imwrite(oss.str(), depth_mat,compression_params);
+    Mat clean_mat(depth_mat);    
+    threshold(clean_mat,clean_mat,depth_max,0,cv::ThresholdTypes::THRESH_TOZERO_INV);
+    threshold(clean_mat,clean_mat,depth_min,0,cv::ThresholdTypes::THRESH_TOZERO);    
+    imshow("debug",clean_mat*100);
+    imwrite(oss.str(), clean_mat,compression_params);
     printf("%s saved!\n", oss.str().c_str());
     fflush(stdout);
     ++count_depth;
