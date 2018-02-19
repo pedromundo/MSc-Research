@@ -150,13 +150,10 @@ int main(int argc, char **argv){
             for(size_t j=0;j < input.size().height;++j){
                 Vec3b input_pixel = input.at<Vec3b>(j,i);
                 uint16_t &output_pixel = output.at<uint16_t>(j,i);
-                output_pixel = 0;
-                if(input_pixel[0] != 0 || input_pixel[1] != 0){
-                    output_pixel = output_pixel | input_pixel[1];
-                    output_pixel = output_pixel << 8;
-                    output_pixel = output_pixel | input_pixel[0];
-                    printf("%d %d %ld\n",input_pixel[0],input_pixel[1],output_pixel);
-                }
+                output_pixel = 0;                
+                output_pixel = output_pixel | input_pixel[0];
+                output_pixel = output_pixel << 8;
+                output_pixel = output_pixel | input_pixel[1];                
             }
         }
     }else if(operation == 'm' || operation == 'M'){
@@ -166,7 +163,7 @@ int main(int argc, char **argv){
         save_ply(input, oss.str());
         return 1;
     }else{
-        printf("Invalid operation requested (2nd argument must be either C - convert or R - restore.)\n");
+        printf("Invalid operation requested (2nd argument must be either C - convert, R - restore or M - generate mesh.)\n");
     }
 
     std::vector<int> compression_params;

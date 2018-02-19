@@ -102,27 +102,29 @@ int main(int argc, const char* argv[])
     superRes->setTemporalAreaRadius(temporalAreaRadius);
 
     Ptr<FrameSource> frameSource;
-    if (useCuda)
+    
+    //Disabled becausee using nvcuvid is kind of a trainwreck right now
+    /*if (useCuda)
     {
         // Try to use gpu Video Decoding
         try
         {
             frameSource = createFrameSource_Video_CUDA(inputVideoName);
             Mat frame;
-            frameSource->nextFrame(frame);
+            //frameSource->nextFrame(frame);
         }
         catch (const cv::Exception&)
         {
             frameSource.release();
         }
-    }
+    }*/
     if (!frameSource)
         frameSource = createFrameSource_Video(inputVideoName);
 
     // skip first frame, it is usually corrupted
     {
         Mat frame;
-        frameSource->nextFrame(frame);
+        //frameSource->nextFrame(frame);
         cout << "Input           : " << inputVideoName << " " << frame.size() << endl;
         cout << "Scale factor    : " << scale << endl;
         cout << "Iterations      : " << iterations << endl;
@@ -153,7 +155,7 @@ int main(int argc, const char* argv[])
         if (!outputVideoName.empty())
         {
             if (!writer.isOpened())
-                writer.open(outputVideoName, VideoWriter::fourcc('X', 'V', 'I', 'D'), 25.0, result.size());
+                writer.open(outputVideoName.substr(0, (outputVideoName.length() - 4)).append("_\%02d.png"), 0, 0, result.size());
             writer << result;
         }
     }

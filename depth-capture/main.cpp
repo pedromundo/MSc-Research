@@ -132,8 +132,9 @@ void show_depth (uint16_t *depth) {
                 pixel_color[1] = 0;
                 pixel_color[2] = 0;
             }
-        }
-    imshow("DEPTH", depth_mat_tmp);
+    }    
+    cv::imshow("DEPTH", depth_mat_tmp);
+    cv::waitKey(1);
 }
 
 // ---------------------------------------------------------
@@ -145,8 +146,9 @@ void show_depth (uint16_t *depth) {
 void show_rgb (uchar *rgb) {
     Mat img_bgr_mat;
     img_rgb_mat = Mat(kinect,CV_8UC3,rgb);
-    cvtColor(img_rgb_mat, img_bgr_mat, CV_RGB2BGR);
+    cvtColor(img_rgb_mat, img_bgr_mat, CV_RGB2BGR);    
     imshow("RGB", img_bgr_mat);
+    cv::waitKey(1);
 }
 
 // ---------------------------------------------------------
@@ -345,7 +347,7 @@ void depthCallback(freenect_device *dev, void *depth, uint32_t timestamp) {
                 threshold(mask, mask, 0.1, UINT8_MAX, THRESH_BINARY_INV);
                 add(final, accumulated_depths[i], final, mask);
                 //imshow("Final", final * 32);
-                waitKey(30);
+                //waitKey(30);
             }
             depth_mat_accumulated = final;
             if(capture_accum_mesh) {
@@ -464,7 +466,7 @@ void *freenect_threadfunc(void *arg) {
 
     int key = 0;
 
-    while((key = (uchar)cvWaitKey(1)) && freenect_process_events(context) >= 0) {
+    while((key = (uchar)waitKey(1)) && freenect_process_events(context) >= 0) {
         if (key == CLOSE)
             break;
         if (key == DEPTH) {
@@ -528,7 +530,7 @@ int start_kinect (int argc, char **argv) {
     }
 
     // SET MESSAGE LOGGING
-    freenect_set_log_level(context, FREENECT_LOG_WARNING);
+    freenect_set_log_level(context, FREENECT_LOG_INFO);
 
     // SET SUBDEVICES TO BE CALLED
     freenect_select_subdevices(context, (freenect_device_flags)(FREENECT_DEVICE_MOTOR | FREENECT_DEVICE_CAMERA));
