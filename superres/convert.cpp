@@ -7,6 +7,8 @@ using namespace cv;
 int save_ply(Mat depth_mat, string filename) {
     FILE *fp;
 
+    depth_mat = depth_mat;
+
     if ((fp = fopen(filename.c_str(), "w")) == NULL) {
         printf("\nError: while creating file %s", filename);
         return 0;
@@ -131,15 +133,22 @@ int main(int argc, char **argv){
             for(size_t j=0;j < input.size().height;++j){
                 uint16_t input_pixel = input.at<uint16_t>(j,i);
                 Vec3b &output_pixel = output.at<Vec3b>(j,i);
-                if(input_pixel != 0){
-                    output_pixel[0] = (unsigned char)((input_pixel & 0xFF00) >> 8);
-                    output_pixel[1] = (unsigned char)(input_pixel & 0x00FF);
-                    output_pixel[2] = 0;
-                }else{
-                    output_pixel[0] = 0;
-                    output_pixel[1] = 0;
-                    output_pixel[2] = 0;
-                }
+                output_pixel[0] = (unsigned char)((input_pixel & 0xFF00) >> 8);
+                output_pixel[1] = (unsigned char)(input_pixel & 0x00FF);
+                output_pixel[2] = 0;
+            }
+        }
+    }else if(operation == '8'){
+        out_suffix = "_8";
+        input = imread(image_name,CV_LOAD_IMAGE_ANYDEPTH);
+        output = Mat(input.size(),CV_8UC3);
+        for(size_t i=0;i < input.size().width;++i){
+            for(size_t j=0;j < input.size().height;++j){
+                uint16_t input_pixel = input.at<uint16_t>(j,i);
+                Vec3b &output_pixel = output.at<Vec3b>(j,i);
+                output_pixel[0] = (unsigned char)(input_pixel & 0x00FF);
+                output_pixel[1] = output_pixel[0];
+                output_pixel[2] = output_pixel[0];
             }
         }
     }else if(operation == 'r' || operation == 'R'){
@@ -150,15 +159,15 @@ int main(int argc, char **argv){
             for(size_t j=0;j < input.size().height;++j){
                 Vec3b input_pixel = input.at<Vec3b>(j,i);
                 uint16_t &output_pixel = output.at<uint16_t>(j,i);
-                output_pixel = 0;                
-                output_pixel = output_pixel | input_pixel[0];
-                output_pixel = output_pixel << 8;
-                output_pixel = output_pixel | input_pixel[1];                
+                output_pixel = 0x0000;
+                output_pixel = output_pixel | (input_pixel[0] & 0xff);
+                output_pixel = (output_pixel << 8) & 0xff00;
+                output_pixel = output_pixel | (input_pixel[1] & 0xff);                
             }
         }
     }else if(operation == 'm' || operation == 'M'){
         out_suffix = "_mesh";
-        input = imread(image_name,CV_LOAD_IMAGE_ANYDEPTH);        
+        input = imread(image_name,CV_LOAD_IMAGE_ANYDEPTH);
         oss << image_name.substr(0, (image_name.length() - 4)) << out_suffix << ".ply";
         save_ply(input, oss.str());
         return 1;
@@ -166,9 +175,6 @@ int main(int argc, char **argv){
         printf("Invalid operation requested (2nd argument must be either C - convert, R - restore or M - generate mesh.)\n");
     }
 
-    std::vector<int> compression_params;
-    compression_params.push_back(CV_IMWRITE_PNG_COMPRESSION);
-    compression_params.push_back(0);
     oss << image_name.substr(0, (image_name.length() - 4)) << out_suffix << ".png";
-    imwrite(oss.str(),output,compression_params);
+    imwrite(oss.str(),output);
 }

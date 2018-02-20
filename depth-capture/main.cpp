@@ -102,6 +102,22 @@ static Mat depth_mat_accumulated;   //final accumulated depth frame
 
 **********************************************************************************************************/
 
+inline uint16_t vec3b_to_uint16(Vec3b value){
+    uint16_t res = 0;
+    res = res | value[0];
+    res = res << 8;
+    res = res | value[1];
+    return res;
+}
+
+inline Vec3b uint16_to_vec3b(uint16_t value){
+    Vec3b res;
+    res[0] = (unsigned char)((value & 0xFF00) >> 8);
+    res[1] = (unsigned char)(value & 0x00FF);
+    res[2] = 0;
+    return res;
+}
+
 inline double lerp(double a, double b, double f)
 {
     return (a * (1.0 - f)) + (b * f);
