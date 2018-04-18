@@ -4,8 +4,8 @@
 #include <iostream>
 #include <limits>
 
-#define NUM_IMAGES 16
-#define RESAMPLE_FACTOR 4
+#define NUM_IMAGES 6
+#define RESAMPLE_FACTOR 2
 
 using namespace cv;
 
@@ -122,8 +122,8 @@ int save_ply(Mat depth_mat, std::string filename, float min_value=std::numeric_l
 
 int main(int argc, char **argv) {
     Mat lr_images[NUM_IMAGES]; //stored as float
-    Mat lr_images_upsampled[NUM_IMAGES]; //stored as float
     Mat alignment_matrices[NUM_IMAGES]; //affine transform matrices
+    Mat template_image;
     Mat hr_image;
 
     float global_min = std::numeric_limits<float>::max(), global_max = std::numeric_limits<float>::min();
@@ -148,40 +148,39 @@ int main(int argc, char **argv) {
 
     printf("Observed Global Min: %.0lf\nObserved Global Max: %.0lf\n",global_min,global_max);
 
-    //Registration Phase - Subpixel registration of all LR images to the first
     for(size_t i = 0; i < NUM_IMAGES; ++i) {
-        Mat template_image = lr_images[0]; //first LR image
+        if(i == 0){
+            lr_images[i].copyTo(template_image); //first LR image
+            hr_image = Mat(template_image.size()*RESAMPLE_FACTOR,CV_32FC1);
+        }
+
+        //Registration - Subpixel registration of all LR images to the first
         findTransformECC(template_image,lr_images[i],alignment_matrices[i], MOTION_AFFINE, \
                          TermCriteria(TermCriteria::COUNT+TermCriteria::EPS, 200, 1E-12));
         std::cout << "Alignment " << i << "-> 0 = " << alignment_matrices[i] << std::endl;
-    }
 
-    //Upsample + Warp Phase - Upsample all LR images and use registration information
-    for(size_t i = 0; i < NUM_IMAGES; ++i) {
+        //Upsample - can use pyramids or perform a simple scale operation
+        //pyrUp(lr_images[i],lr_images[i],lr_images[i].size()*RESAMPLE_FACTOR);
+        cv::resize(lr_images[i],lr_images[i],lr_images[i].size()*RESAMPLE_FACTOR,0,0,INTER_NEAREST);
+
         //Warp - Simplified to rigid transform because we aim to have as little
         //translation and rotation between the LR images as possible while still
         //modifying the intrinsics enough to have complementary data
-        if(i > 0) {
-            warpAffine(lr_images[i],lr_images[i],alignment_matrices[i],\
-                       lr_images[i].size(),CV_WARP_INVERSE_MAP);
+        if(i > 0){
+        warpAffine(lr_images[i],lr_images[i],alignment_matrices[i],\
+                    lr_images[i].size(),CV_WARP_INVERSE_MAP);
         }
+        imwrite(std::string("cap_depth_registered_")+=(std::to_string(i)+=".png"),lr_images[i]);
 
-        //Upsample - can use pyramids or perform a simple scale operation
-        //pyrUp(lr_images[i],lr_images_upsampled[i],lr_images[i].size()*RESAMPLE_FACTOR);
-        cv::resize(lr_images[i],lr_images_upsampled[i],lr_images[i].size()*RESAMPLE_FACTOR,0,0,INTER_NEAREST);
-    }
-
-    //Reconstruction Phase - For now, simply averaging the images, this reduces the
-    //impact of the additive noise from the kinect sensor on the HR image (Richardt).
-    //Nonlinear noise generated during the other phases will be removed using the
-    //previously established limits of the depth info; i.e., we can not generate or
-    //reconstruct information outside of the observed volume. This implementation
-    //performs poorly in case the images are not very well aligned. In fact, even
-    //changing the ECC epsilon from 1E-12 to 1E-06 adversely affected the results
-    hr_image = Mat(lr_images_upsampled[0].size(),CV_32FC1);
-    for(size_t i = 0; i < NUM_IMAGES; ++i) {
-        hr_image = hr_image + lr_images_upsampled[i]/NUM_IMAGES;
-        /*addWeighted(hr_image,1.0,lr_images_upsampled[i],(1.0/NUM_IMAGES),0,hr_image);*/
+        //Reconstruction Phase - For now, simply averaging the images, this reduces the
+        //impact of the additive noise from the kinect sensor on the HR image (Richardt).
+        //Nonlinear noise generated during the other phases will be removed using the
+        //previously established limits of the depth info; i.e., we can not generate or
+        //reconstruct information outside of the observed volume. This implementation
+        //performs poorly in case the images are not very well aligned. In fact, even
+        //changing the ECC epsilon from 1E-12 to 1E-06 adversely affected the results
+        /*hr_image = hr_image + lr_images[i]/NUM_IMAGES;*/
+        addWeighted(hr_image,1.0,lr_images[i],(1.0/NUM_IMAGES),0,hr_image);
     }
 
     //Downsample the HR image back to 640x480 to keep it valid within the coordinate
