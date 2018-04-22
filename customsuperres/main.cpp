@@ -4,11 +4,10 @@
 #include <iostream>
 #include <limits>
 
-#define NUM_IMAGES 16
-#define RESAMPLE_FACTOR 4
+#define NUM_IMAGES 6
+#define RESAMPLE_FACTOR 6
 
 using namespace cv;
-
 
 //From https://stackoverflow.com/questions/1719070/1719155#1719155
 //this will be used to test median fusion instead of average
@@ -31,30 +30,30 @@ int save_ply(Mat depth_mat, std::string filename, float min_value=std::numeric_l
 
     //normals via cross-product
     Mat normal_mat = Mat(depth_mat.size(), CV_32FC3);
-    for(int x = 0; x < depth_mat.size().height; ++x)
+    for(int i = 0; i < depth_mat.size().height; ++i)
     {
-        for(int y = 0; y < depth_mat.size().width; ++y)
+        for(int j = 0; j < depth_mat.size().width; ++j)
         {
             uint16_t right = 0, left = 0, down = 0, up = 0;
 
-            if(x > 0 && y > 0 && x < depth_mat.size().height-1 && y < depth_mat.size().width-1) {
-                right = depth_mat.at<uint16_t>(x+1, y);
-                left = depth_mat.at<uint16_t>(x-1, y);
-                down = depth_mat.at<uint16_t>(x, y+1);
-                up = depth_mat.at<uint16_t>(x, y-1);
+            if(i > 0 && j > 0 && i < depth_mat.size().height-1 && j < depth_mat.size().width-1) {
+                right = depth_mat.at<uint16_t>(i+1, j);
+                left = depth_mat.at<uint16_t>(i-1, j);
+                down = depth_mat.at<uint16_t>(i, j+1);
+                up = depth_mat.at<uint16_t>(i, j-1);
             }
 
             //threshold (as per Hinterstoisser et al (2011))
-            if(abs(depth_mat.at<uint16_t>(x, y) - right) > 20) {
+            if(abs(depth_mat.at<uint16_t>(i, j) - right) > 20) {
                 right = 0;
             }
-            if(abs(depth_mat.at<uint16_t>(x, y) - left) > 20) {
+            if(abs(depth_mat.at<uint16_t>(i, j) - left) > 20) {
                 left = 0;
             }
-            if(abs(depth_mat.at<uint16_t>(x, y) - down) > 20) {
+            if(abs(depth_mat.at<uint16_t>(i, j) - down) > 20) {
                 down = 0;
             }
-            if(abs(depth_mat.at<uint16_t>(x, y) - up) > 20) {
+            if(abs(depth_mat.at<uint16_t>(i, j) - up) > 20) {
                 up = 0;
             }
 
@@ -64,7 +63,7 @@ int save_ply(Mat depth_mat, std::string filename, float min_value=std::numeric_l
             Vec3d d(-dzdx, -dzdy, 1.0);
             Vec3d n = normalize(d);
 
-            normal_mat.at<Vec3f>(x, y) = n;
+            normal_mat.at<Vec3f>(i, j) = n;
         }
     }
 
@@ -74,7 +73,7 @@ int save_ply(Mat depth_mat, std::string filename, float min_value=std::numeric_l
         for (j = 0; j < depth_mat.size().width; j++) {
             uint16_t z_in_mm = depth_mat.at<uint16_t>(i,j);
 
-            if(z_in_mm != 0 && z_in_mm >= 829 /*&& z_in_mm <= max_value*/) {
+            if(z_in_mm != 0 && z_in_mm >= min_value && z_in_mm <= max_value) {
                 ++num_vertices;
             }
         }
@@ -100,7 +99,7 @@ int save_ply(Mat depth_mat, std::string filename, float min_value=std::numeric_l
             uint16_t z_in_mm = depth_mat.at<uint16_t>(i,j);
             double cx = 313.68782938, cy = 259.01834898, fx_inv = 1 / 526.37013657, fy_inv = fx_inv;
 
-            if(z_in_mm != 0 && z_in_mm >= 829 /*&& z_in_mm <= max_value*/) {
+            if(z_in_mm != 0 && z_in_mm >= min_value && z_in_mm <= max_value) {
                 double vx = z_in_mm * (j - cx) * fx_inv;
                 double vy = -z_in_mm * (i - cy) * fy_inv;
                 Vec3f normal = normal_mat.at<Vec3f>(i,j);
@@ -149,6 +148,7 @@ int main(int argc, char **argv) {
     printf("Observed Global Min: %.0lf\nObserved Global Max: %.0lf\n",global_min,global_max);
 
     //Registration Phase - Subpixel registration of all LR images to the first
+    #pragma omp parallel for
     for(size_t i = 0; i < NUM_IMAGES; ++i) {
         Mat template_image = lr_images[0]; //first LR image
         findTransformECC(template_image,lr_images[i],alignment_matrices[i], MOTION_AFFINE, \
@@ -157,17 +157,19 @@ int main(int argc, char **argv) {
     }
 
     //Upsample + Warp Phase - Upsample all LR images and use registration information
+    //technically the resize operation should happen before the warpAffine, but this
+    //is not working in this version of the program, whilst it worked on an older
+    //version, ignoring this for now since the results are good
     for(size_t i = 0; i < NUM_IMAGES; ++i) {
         //Warp - Simplified to rigid transform because we aim to have as little
         //translation and rotation between the LR images as possible while still
         //modifying the intrinsics enough to have complementary data
         if(i > 0) {
-            warpAffine(lr_images[i],lr_images[i],alignment_matrices[i],\
-                       lr_images[i].size(),CV_WARP_INVERSE_MAP);
+            warpAffine(lr_images[i],lr_images[i],alignment_matrices[i], lr_images[i].size(),CV_WARP_INVERSE_MAP);
         }
 
         //Upsample - can use pyramids or perform a simple scale operation
-        //pyrUp(lr_images[i],lr_images_upsampled[i],lr_images[i].size()*RESAMPLE_FACTOR);
+        //results were exactly the same, still gotta find out why
         cv::resize(lr_images[i],lr_images_upsampled[i],lr_images[i].size()*RESAMPLE_FACTOR,0,0,INTER_NEAREST);
     }
 
@@ -180,15 +182,12 @@ int main(int argc, char **argv) {
     //changing the ECC epsilon from 1E-12 to 1E-06 adversely affected the results
     hr_image = Mat(lr_images_upsampled[0].size(),CV_32FC1);
     for(size_t i = 0; i < NUM_IMAGES; ++i) {
-        hr_image = hr_image + lr_images_upsampled[i]/NUM_IMAGES;
-        /*addWeighted(hr_image,1.0,lr_images_upsampled[i],(1.0/NUM_IMAGES),0,hr_image);*/
+        addWeighted(hr_image,1.0,lr_images_upsampled[i],(1.0/NUM_IMAGES),0,hr_image);
     }
 
     //Downsample the HR image back to 640x480 to keep it valid within the coordinate
     //system of the Microsoft Kinect sensor
-    cv::resize(hr_image,hr_image,hr_image.size()/RESAMPLE_FACTOR,0,0,INTER_AREA);
-    /*pyrDown(hr_image,hr_image,hr_image.size()/RESAMPLE_FACTOR);*/
+    cv::resize(hr_image,hr_image,hr_image.size()/RESAMPLE_FACTOR,0,0,INTER_NEAREST);
     hr_image.convertTo(hr_image,CV_16UC1);
-    imwrite("cap_depth_hr.png",hr_image);
     save_ply(hr_image,"cap_depth_hr.ply",global_min,global_max);
 }
