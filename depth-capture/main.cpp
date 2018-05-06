@@ -25,7 +25,7 @@
 //Constants
 #define MESH_TYPE_REGULAR 1
 #define MESH_TYPE_SR 2
-#define SR_SIZE 6
+#define SR_SIZE 7
 
 using namespace cv;
 
@@ -41,8 +41,8 @@ static std::string capture_name = "cap";
 static int capture_step = 30;
 
 //Depth thresholds in mm
-int depth_min = 650;
-int depth_max = 1300;
+int depth_min = 0;
+int depth_max = 850;
 
 //OpenCV variables
 static Size kinect;
@@ -192,8 +192,7 @@ int save_rgb(uchar *rgb) {
 // Description:	create a file and save a .ply polygonal mesh
 // with both depth and color information (now working!)
 // ---------------------------------------------------------
-int save_ply(Mat depth_mat, Mat color_mat, int mesh_type, int count, float min_value=std::numeric_limits<float>::min(),\
-                 float max_value=std::numeric_limits<float>::max()) {
+int save_ply(Mat depth_mat, Mat color_mat, int mesh_type, int count) {
     std::ostringstream oss;
     if(mesh_type == MESH_TYPE_REGULAR) {
         oss << capture_name << "_mesh_" << count*capture_step << ".ply";
@@ -261,7 +260,7 @@ int save_ply(Mat depth_mat, Mat color_mat, int mesh_type, int count, float min_v
         for (j = 0; j < depth_mat.size().width; j++) {
             uint16_t z_in_mm = depth_mat.at<uint16_t>(i,j);
 
-            if(z_in_mm != 0 && z_in_mm >= min_value && z_in_mm <= max_value) {
+            if(z_in_mm != 0 && z_in_mm >= depth_min && z_in_mm <= depth_max) {
                 ++num_vertices;
             }
         }
@@ -286,7 +285,7 @@ int save_ply(Mat depth_mat, Mat color_mat, int mesh_type, int count, float min_v
             uint16_t z_in_mm = depth_mat.at<uint16_t>(i,j);
             double cx = 313.68782938, cy = 259.01834898, fx_inv = 1 / 526.37013657, fy_inv = fx_inv;
 
-            if(z_in_mm != 0 && z_in_mm >= min_value && z_in_mm <= max_value) {
+            if(z_in_mm != 0 && z_in_mm >= depth_min && z_in_mm <= depth_max) {
                 double vx = z_in_mm * (j - cx) * fx_inv;
                 double vy = -z_in_mm * (i - cy) * fy_inv;
                 //this is going to be a bit misaligned, not that bad if the
@@ -313,13 +312,15 @@ Mat superresolve(Mat lr_images[], unsigned int image_count, int resample_factor)
     Mat lr_images_upsampled[image_count]; //stored as float
     Mat alignment_matrices[image_count]; //affine transform matrices
     Mat hr_image;
-
+    for(size_t i = 0; i < image_count; ++i) {
+        imwrite(std::to_string(i)+="_after.png",lr_images[i]);
+    }
     float global_min = std::numeric_limits<float>::max(), global_max = std::numeric_limits<float>::min();
     //Pre-processing: get minimum and maximum values from the LR images we use
     //this information to remove extreme values from the HR image because some
     //non-linear noise might be added on the resampling and fusion phases
     //(i.e. remove all values outside of the observed range)
-    for(size_t i = 0; i < SR_SIZE; ++i) {
+    for(size_t i = 0; i < image_count; ++i) {
         threshold(lr_images[i],lr_images[i],depth_max,0,cv::ThresholdTypes::THRESH_TOZERO_INV);
         threshold(lr_images[i],lr_images[i],depth_min,0,cv::ThresholdTypes::THRESH_TOZERO);
         lr_images[i].convertTo(lr_images[i],CV_32FC1);
@@ -334,12 +335,11 @@ Mat superresolve(Mat lr_images[], unsigned int image_count, int resample_factor)
     }
 
     //Registration Phase - Subpixel registration of all LR images to the first
-    #pragma omp parallel for
     for(size_t i = 0; i < image_count; ++i) {
-        Mat template_image = lr_images[0]; //first LR image
+        Mat template_image = lr_images[(int)ceil(image_count/2.0)]; //first LR image
         findTransformECC(template_image,lr_images[i],alignment_matrices[i], MOTION_AFFINE, \
                          TermCriteria(TermCriteria::COUNT+TermCriteria::EPS, 200, 1E-12));
-        std::cout << "Alignment " << i << "-> 0 = " << alignment_matrices[i] << std::endl;
+        std::cout << "Alignment " << i << "->" << (int)ceil(image_count/2.0) << " = " << alignment_matrices[i] << std::endl;
     }
 
     //Upsample + Warp Phase - Upsample all LR images and use registration information
@@ -371,7 +371,7 @@ Mat superresolve(Mat lr_images[], unsigned int image_count, int resample_factor)
         addWeighted(hr_image,1.0,lr_images_upsampled[i],(1.0/image_count),0,hr_image);
     }
 
-    //Filter out samples outside of the observed volume (i.e. non-linear noise and 
+    //Filter out samples outside of the observed volume (i.e. non-linear noise and
     //image processing artifacts)
 
     //Downsample the HR image back to 640x480 to keep it valid within the coordinate
@@ -396,52 +396,54 @@ int main(int argc, char **argv)
     kinect.height = 480;
 
     int key = 0;
-    uint32_t timestamp;
-    uint32_t timestamp_depth;
-    unsigned char *data;
-    uint16_t *depth_data;
+
+    freenect_sync_set_tilt_degs(0,0);
 
     while((key = waitKey(1)))
     {
-        if(key == -1){
-        #pragma omp parallel num_threads(2)
-        {
-            int thread_num = omp_get_thread_num();
-            if(thread_num == 0){
-                freenect_sync_get_video((void**)(&data), &timestamp, 0, FREENECT_VIDEO_RGB);
-                show_rgb(data);                    
-            }else if(thread_num == 1){
-                freenect_sync_get_depth((void**)(&depth_data), &timestamp_depth, 0, FREENECT_DEPTH_REGISTERED);
-                show_depth(depth_data);
+        if(key == -1) {
+            uint32_t timestamp;
+            uint32_t timestamp_depth;
+            unsigned char *data;
+            uint16_t *depth_data;
+            #pragma omp parallel num_threads(2)
+            {
+                int thread_num = omp_get_thread_num();
+                if(thread_num == 0) {
+                    freenect_sync_get_video((void**)(&data), &timestamp, 0, FREENECT_VIDEO_RGB);
+                    show_rgb(data);
+                } else if(thread_num == 1) {
+                    freenect_sync_get_depth((void**)(&depth_data), &timestamp_depth, 0, FREENECT_DEPTH_REGISTERED);
+                    show_depth(depth_data);
+                }
             }
-        }
-        }else{
-            if (key == CLOSE){
+        } else {
+            if (key == CLOSE) {
                 break;
             }
             if (key == DEPTH) {
+                uint32_t timestamp_depth;
+                uint16_t *depth_data;
                 freenect_sync_get_depth((void**)(&depth_data), &timestamp_depth, 0, FREENECT_DEPTH_REGISTERED);
                 save_depth(depth_data);
             }
             if (key == COLOR) {
+                uint32_t timestamp;
+                unsigned char *data;
                 freenect_sync_get_video((void**)(&data), &timestamp, 0, FREENECT_VIDEO_RGB);
                 save_rgb(data);
             }
             if (key == SR) {
-                Mat sr_frames[6];
-                for(auto i = 0;i<SR_SIZE;++i){
-                   if(i==0){
-                        freenect_sync_set_tilt_degs(10,0);
-                        sleep(5);
-                   }else if(i==2){
-                        freenect_sync_set_tilt_degs(-10,0);
-                        sleep(5);
-                   }else if(i==4){
-                        freenect_sync_set_tilt_degs(0,0);
-                        sleep(5);
-                   }
-                   freenect_sync_get_depth((void**)(&depth_data), &timestamp_depth, 0, FREENECT_DEPTH_REGISTERED);
-                   sr_frames[i] = Mat(kinect,CV_16UC1,depth_data);
+                Mat sr_frames[SR_SIZE];
+                for(int i = 0; i<SR_SIZE; ++i) {
+                    uint32_t timestamp_depth;
+                    uint16_t *depth_data;
+                    freenect_sync_set_tilt_degs(i-3,0);
+                    sleep(1);
+                    freenect_sync_get_depth((void**)(&depth_data), &timestamp_depth, 0, FREENECT_DEPTH_REGISTERED);
+                    std::cout << timestamp_depth << std::endl;
+                    Mat(kinect,CV_16UC1,depth_data).copyTo(sr_frames[i]);
+                    imwrite(std::to_string(i)+="_before.png",sr_frames[i]);
                 }
                 Mat sr_image = superresolve(sr_frames,SR_SIZE,4);
                 save_sr(sr_image);
