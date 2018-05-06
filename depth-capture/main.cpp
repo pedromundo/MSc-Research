@@ -1,4 +1,4 @@
-#include <libfreenect/libfreenect.h>
+#include <libfreenect/libfreenect_sync.h>
 
 #include <opencv2/opencv.hpp>
 #include <sstream>
@@ -6,56 +6,39 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cmath>
-#include <pthread.h>
+#include <omp.h>
+#include <unistd.h>
 
 //Escape closes the applications
 #define CLOSE 27
 //Image capture keys
 #define DEPTH 'q'
-#define ACCUM 'w'
+#define SR 'w'
 #define COLOR 'e'
 #define ALL 'A'
+#define UP 'U'
+#define DOWN 'J'
 //Mesh capture keys
 #define DEPTH_MESH 'Q'
-#define ACCUM_MESH 'W'
+#define SR_MESH 'W'
 
 //Constants
 #define MESH_TYPE_REGULAR 1
-#define MESH_TYPE_ACCUMULATED 2
-#define ACCUM_SIZE 6
+#define MESH_TYPE_SR 2
+#define SR_SIZE 6
 
 using namespace cv;
 
-pthread_t freenect_thread;
-
-pthread_mutex_t mutex_capture = PTHREAD_MUTEX_INITIALIZER;
-
-freenect_context *context;
-freenect_device *device;
-freenect_frame_mode depth_frame;
-freenect_frame_mode rgb_frame;
-
 static int freenect_angle = 0;
-
-//Control Variables
-static int capture_depth = 0;
-static int capture_color = 0;
-static int capture_accum = 0;
-static int capture_depth_mesh = 0;
-static int capture_accum_mesh = 0;
 
 static int count_depth = 0;
 static int count_color = 0;
-static int count_accum = 0;
+static int count_sr = 0;
 static int count_depth_mesh = 0;
-static int count_accum_mesh = 0;
+static int count_sr_mesh = 0;
 
 static std::string capture_name = "cap";
 static int capture_step = 30;
-
-static int frames_left = ACCUM_SIZE;
-static Mat accumulated_depths[ACCUM_SIZE];
-
 
 //Depth thresholds in mm
 int depth_min = 650;
@@ -63,9 +46,6 @@ int depth_max = 1300;
 
 //OpenCV variables
 static Size kinect;
-static Mat img_rgb_mat;    // for RGB image video
-static Mat depth_mat;    //raw depth data
-static Mat normal_mat;    //raw normal data
 
 //TODO: I dont need all of these since conversion works in-place
 static Mat depth_mat_filtered;      //filtered depth data
@@ -100,22 +80,6 @@ static Mat depth_mat_float_filtered; //filtered depth data converted to float
 
 **********************************************************************************************************/
 
-inline uint16_t vec3b_to_uint16(Vec3b value) {
-    uint16_t res = 0;
-    res = res | value[0];
-    res = res << 8;
-    res = res | value[1];
-    return res;
-}
-
-inline Vec3b uint16_to_vec3b(uint16_t value) {
-    Vec3b res;
-    res[0] = (unsigned char)((value & 0xFF00) >> 8);
-    res[1] = (unsigned char)(value & 0x00FF);
-    res[2] = 0;
-    return res;
-}
-
 inline double lerp(double a, double b, double f)
 {
     return (a * (1.0 - f)) + (b * f);
@@ -129,6 +93,7 @@ inline double lerp(double a, double b, double f)
 // ---------------------------------------------------------
 
 void show_depth (uint16_t *depth) {
+    Mat depth_mat = Mat(kinect,CV_16UC1, depth);
     Mat depth_mat_tmp = Mat(kinect, CV_8UC3);
     int i, j;
     for ( i = 0; i < kinect.height; i++)
@@ -158,7 +123,7 @@ void show_depth (uint16_t *depth) {
 
 void show_rgb (uchar *rgb) {
     Mat img_bgr_mat;
-    img_rgb_mat = Mat(kinect,CV_8UC3,rgb);
+    Mat img_rgb_mat = Mat(kinect,CV_8UC3,rgb);
     cvtColor(img_rgb_mat, img_bgr_mat, CV_RGB2BGR);
     imshow("RGB", img_bgr_mat);
 }
@@ -169,7 +134,8 @@ void show_rgb (uchar *rgb) {
 // Description:	create a file and save one depth frame
 // ---------------------------------------------------------
 
-int save_depth () {
+int save_depth (uint16_t *depth) {
+    Mat depth_mat = Mat(kinect,CV_16UC1, depth);
     std::ostringstream oss;
     oss << capture_name << "_depth_" << count_depth*capture_step << ".png";
     Mat clean_mat(depth_mat);
@@ -183,12 +149,32 @@ int save_depth () {
 }
 
 // ---------------------------------------------------------
+// Name:		save_sr
+// ---------------------------------------------------------
+// Description:	create a file and save one sr frame
+// ---------------------------------------------------------
+
+int save_sr (Mat sr_image) {
+    std::ostringstream oss;
+    oss << capture_name << "_sr_" << count_sr*capture_step << ".png";
+    Mat clean_mat(sr_image);
+    threshold(clean_mat,clean_mat,depth_max,0,cv::ThresholdTypes::THRESH_TOZERO_INV);
+    threshold(clean_mat,clean_mat,depth_min,0,cv::ThresholdTypes::THRESH_TOZERO);
+    imwrite(oss.str(), clean_mat);
+    printf("%s saved!\n", oss.str().c_str());
+    fflush(stdout);
+    ++count_sr;
+    return 1;
+}
+
+// ---------------------------------------------------------
 // Name:		save_rgb
 // ---------------------------------------------------------
 // Description:	create a file and save one rgb frame
 // ---------------------------------------------------------
 
-int save_rgb() {
+int save_rgb(uchar *rgb) {
+    Mat img_rgb_mat = Mat(kinect,CV_8UC3,rgb);
     Mat img_bgr_mat;
     std::ostringstream oss;
     oss << capture_name << "_color_" << count_color*capture_step << ".png";
@@ -206,13 +192,13 @@ int save_rgb() {
 // Description:	create a file and save a .ply polygonal mesh
 // with both depth and color information (now working!)
 // ---------------------------------------------------------
-int save_ply(Mat depth_mat, int mesh_type, int count, float min_value=std::numeric_limits<float>::min(),\
+int save_ply(Mat depth_mat, Mat color_mat, int mesh_type, int count, float min_value=std::numeric_limits<float>::min(),\
                  float max_value=std::numeric_limits<float>::max()) {
     std::ostringstream oss;
     if(mesh_type == MESH_TYPE_REGULAR) {
         oss << capture_name << "_mesh_" << count*capture_step << ".ply";
-    } else if(mesh_type == MESH_TYPE_ACCUMULATED) {
-        oss << capture_name << "_accummesh_" << count*capture_step << ".ply";
+    } else if(mesh_type == MESH_TYPE_SR) {
+        oss << capture_name << "_srmesh_" << count*capture_step << ".ply";
     }
     FILE *fp;
 
@@ -305,7 +291,7 @@ int save_ply(Mat depth_mat, int mesh_type, int count, float min_value=std::numer
                 double vy = -z_in_mm * (i - cy) * fy_inv;
                 //this is going to be a bit misaligned, not that bad if the
                 //'centered' image is captured last
-                Vec3b color = img_rgb_mat.at<Vec3b>(i,j);
+                Vec3b color = color_mat.at<Vec3b>(i,j);
                 Vec3f normal = normal_mat.at<Vec3f>(i,j);
                 fprintf(fp, "%.6lf %.6lf %.6lf %.6lf %.6lf %.6lf %d %d %d\n",
                         (double) vx, (double) vy, (double) -z_in_mm, (double) normal[0],
@@ -327,6 +313,25 @@ Mat superresolve(Mat lr_images[], unsigned int image_count, int resample_factor)
     Mat lr_images_upsampled[image_count]; //stored as float
     Mat alignment_matrices[image_count]; //affine transform matrices
     Mat hr_image;
+
+    float global_min = std::numeric_limits<float>::max(), global_max = std::numeric_limits<float>::min();
+    //Pre-processing: get minimum and maximum values from the LR images we use
+    //this information to remove extreme values from the HR image because some
+    //non-linear noise might be added on the resampling and fusion phases
+    //(i.e. remove all values outside of the observed range)
+    for(size_t i = 0; i < SR_SIZE; ++i) {
+        threshold(lr_images[i],lr_images[i],depth_max,0,cv::ThresholdTypes::THRESH_TOZERO_INV);
+        threshold(lr_images[i],lr_images[i],depth_min,0,cv::ThresholdTypes::THRESH_TOZERO);
+        lr_images[i].convertTo(lr_images[i],CV_32FC1);
+
+        double local_min, local_max;
+        Mat mask = lr_images[i] > 0;
+
+        minMaxLoc(lr_images[i],&local_min,&local_max,NULL,NULL,mask);
+
+        global_min = local_min<global_min?local_min:global_min;
+        global_max = local_max>global_max?local_max:global_max;
+    }
 
     //Registration Phase - Subpixel registration of all LR images to the first
     #pragma omp parallel for
@@ -366,251 +371,16 @@ Mat superresolve(Mat lr_images[], unsigned int image_count, int resample_factor)
         addWeighted(hr_image,1.0,lr_images_upsampled[i],(1.0/image_count),0,hr_image);
     }
 
+    //Filter out samples outside of the observed volume (i.e. non-linear noise and 
+    //image processing artifacts)
+
     //Downsample the HR image back to 640x480 to keep it valid within the coordinate
     //system of the Microsoft Kinect sensor
     cv::resize(hr_image,hr_image,hr_image.size()/resample_factor,0,0,INTER_NEAREST);
     hr_image.convertTo(hr_image,CV_16UC1);
+    threshold(hr_image,hr_image,global_max,0,cv::ThresholdTypes::THRESH_TOZERO_INV);
+    threshold(hr_image,hr_image,global_min,0,cv::ThresholdTypes::THRESH_TOZERO);
     return hr_image;
-}
-
-// ---------------------------------------------------------
-// Name:		depthCallback
-// ---------------------------------------------------------
-// Description:	callback that receives each depth frame.
-// ---------------------------------------------------------
-
-void depthCallback(freenect_device *dev, void *depth, uint32_t timestamp) {
-    depth_mat = Mat(kinect,CV_16UC1, depth);
-    //Mesh Capture
-    if (capture_depth_mesh) {
-        pthread_mutex_lock(&mutex_capture);
-        threshold(depth_mat,depth_mat,depth_max,0,cv::ThresholdTypes::THRESH_TOZERO_INV);
-        threshold(depth_mat,depth_mat,depth_min,0,cv::ThresholdTypes::THRESH_TOZERO);
-        save_ply(depth_mat, MESH_TYPE_REGULAR, count_depth_mesh);
-        capture_depth_mesh = 0;
-        ++count_depth_mesh;
-        pthread_mutex_unlock(&mutex_capture);
-    }
-
-    if ((capture_accum_mesh || capture_accum) && frames_left >= 0) {
-        pthread_mutex_lock(&mutex_capture);
-        Mat(kinect,CV_16UC1,depth).copyTo(accumulated_depths[ACCUM_SIZE-frames_left--]);
-        if(frames_left < 1) {
-            float global_min = std::numeric_limits<float>::max(), global_max = std::numeric_limits<float>::min();
-            //Pre-processing: get minimum and maximum values from the LR images we use
-            //this information to remove extreme values from the HR image because some
-            //non-linear noise might be added on the resampling and fusion phases
-            //(i.e. remove all values outside of the observed range)
-            for(size_t i = 0; i < ACCUM_SIZE; ++i) {
-                threshold(accumulated_depths[i],accumulated_depths[i],depth_max,0,cv::ThresholdTypes::THRESH_TOZERO_INV);
-                threshold(accumulated_depths[i],accumulated_depths[i],depth_min,0,cv::ThresholdTypes::THRESH_TOZERO);
-                accumulated_depths[i].convertTo(accumulated_depths[i],CV_32FC1);
-
-                double local_min, local_max;
-                Mat mask = accumulated_depths[i] > 0;
-
-                minMaxLoc(accumulated_depths[i],&local_min,&local_max,NULL,NULL,mask);
-
-                global_min = local_min<global_min?local_min:global_min;
-                global_max = local_max>global_max?local_max:global_max;
-            }
-
-            printf("Observed Global Min: %.0lf\nObserved Global Max: %.0lf\n",global_min,global_max);
-
-            Mat final_image = superresolve(accumulated_depths,ACCUM_SIZE,2);
-            if(capture_accum_mesh) {
-                save_ply(final_image, MESH_TYPE_ACCUMULATED, count_accum_mesh, global_min, global_max);
-                capture_accum_mesh = 0;
-                ++count_accum_mesh;
-            }
-            if(capture_accum) {
-                std::ostringstream oss;
-                oss << capture_name << "_accumdepth_" << count_accum*capture_step << ".png";
-                imwrite(oss.str(),final_image);
-                printf("%s saved!\n", oss.str().c_str());
-                fflush(stdout);
-                capture_accum = 0;
-                ++count_accum;
-            }
-            frames_left = ACCUM_SIZE;
-        }
-        pthread_mutex_unlock(&mutex_capture);
-    }
-
-    //Image Capture/Display
-    if (!capture_depth) {
-        show_depth((uint16_t*)depth);
-    } else {
-        capture_depth = 0;
-        pthread_mutex_lock(&mutex_capture);
-        save_depth();
-        pthread_mutex_unlock(&mutex_capture);
-    }
-}
-
-
-// ---------------------------------------------------------
-// Name:		rgbCallback
-// ---------------------------------------------------------
-// Description:	callback that receives each rgb frame.
-// ---------------------------------------------------------
-
-void rgbCallback(freenect_device *dev, void *rgb, uint32_t timestamp) {
-    if (!capture_color)
-        show_rgb((uchar*)rgb);
-    else {
-        capture_color = 0;
-        pthread_mutex_lock(&mutex_capture);
-        save_rgb();
-        pthread_mutex_unlock(&mutex_capture);
-    }
-}
-
-// ---------------------------------------------------------
-// Name:		freenect_threadfunc
-// ---------------------------------------------------------
-// Description:	kinect's main function. Start the depth and
-//				rgb capture.
-// ---------------------------------------------------------
-
-void *freenect_threadfunc(void *arg) {
-    // SET THE TILT STATE OF DEVICE
-    freenect_set_tilt_degs(device, freenect_angle);
-
-    // SET STATE OF THE LED
-    freenect_set_led(device,LED_BLINK_RED_YELLOW);
-
-    freenect_set_flag(device, FREENECT_RAW_COLOR, FREENECT_ON);
-
-    // SET CALLBACK FOR DEPTH AND VIDEO INFORMATION RECEIVED EVENT
-    freenect_set_depth_callback(device, depthCallback);
-    freenect_set_video_callback(device, rgbCallback);
-
-    // SET CURRENT MODE FOR DEPTH AND VIDEO. MODE CAN'T BE CHANGED WHILE STREAMING IS ACTIVE
-    depth_frame = freenect_find_depth_mode(FREENECT_RESOLUTION_MEDIUM, FREENECT_DEPTH_REGISTERED);
-    rgb_frame = freenect_find_video_mode(FREENECT_RESOLUTION_MEDIUM, FREENECT_VIDEO_RGB);
-
-    freenect_set_depth_mode(device, depth_frame);
-    freenect_set_video_mode(device, rgb_frame);
-
-    // START DEPTH AND VIDEO STREAM
-    freenect_start_depth(device);
-    freenect_start_video(device);
-
-    freenect_set_flag(device, FREENECT_RAW_COLOR, FREENECT_ON);
-    freenect_set_flag(device, FREENECT_AUTO_EXPOSURE, FREENECT_ON);
-    freenect_set_flag(device, FREENECT_AUTO_WHITE_BALANCE, FREENECT_ON);
-
-    int key = 0;
-
-    while((key = (uchar)waitKey(1)) && freenect_process_events(context) >= 0) {
-        if (key == CLOSE)
-            break;
-        if (key == DEPTH) {
-            capture_depth = 1;
-        }
-        if (key == COLOR) {
-            capture_color = 1;
-        }
-        if (key == ACCUM) {
-            capture_accum = 1;
-        }
-        if (key == DEPTH_MESH) {
-            capture_depth_mesh = 1;
-        }
-        if (key == ACCUM_MESH) {
-            capture_accum_mesh = 1;
-        }
-        if (key == ALL) {
-            capture_depth = 1;
-            capture_color = 1;
-            capture_accum = 1;
-            capture_depth_mesh = 1;
-            capture_accum_mesh = 1;
-        }
-    }
-
-    printf("\nShutting down streams...");
-
-    freenect_set_led(device,LED_BLINK_GREEN);
-
-    // STOP STREAM
-    freenect_stop_depth(device);
-    freenect_stop_video(device);
-
-    // STOP DEVICE
-    freenect_close_device(device);
-    freenect_shutdown(context);
-
-    printf("DONE!\n");
-
-    return NULL;
-}
-
-
-// ---------------------------------------------------------
-// Name:		start_kinect
-// ---------------------------------------------------------
-// Description:	start the device and create freenect thread
-// ---------------------------------------------------------
-
-int start_kinect (int argc, char **argv) {
-    printf("\nLoading Kinect Camera...");
-
-    // START FREENECT CONTEXT
-    if (freenect_init(&context, NULL) < 0) {
-        printf("ERROR: failed to start freenect_init()\n");
-        return 1;
-    }
-    else {
-        printf("COMPLETE!\n");
-    }
-
-    // SET MESSAGE LOGGING
-    freenect_set_log_level(context, FREENECT_LOG_INFO);
-
-    // SET SUBDEVICES TO BE CALLED
-    freenect_select_subdevices(context, (freenect_device_flags)(FREENECT_DEVICE_MOTOR | FREENECT_DEVICE_CAMERA));
-
-    int num_devices = freenect_num_devices (context);
-    printf ("Number of devices found: %d\n", num_devices);
-
-    int device_number = 0;
-
-    // Check Arguments
-    if (argc > 1) {
-        device_number = atoi(argv[1]);
-    }
-
-    if (argc > 2) {
-        capture_name = std::string(argv[2]);
-    }
-
-    if (argc > 3) {
-        capture_step = atoi(argv[3]);
-    }
-
-    printf("Capture Parameters: Name: %s; Step: %d\n", capture_name.c_str(), capture_step);
-    fflush(stdout);
-
-    if (num_devices < 1) {
-        return 1;
-    }
-
-    // CALL DEVICE
-    if (freenect_open_device(context, &device, device_number) < 0) {
-        printf("ERROR: could not open device\n");
-        return 1;
-    }
-
-    // CREATE PTHREAD AND START KINECT
-    int start = pthread_create(&freenect_thread, NULL, freenect_threadfunc, NULL);
-    if (start) {
-        printf("ERROR: failed to create Kinect Thread\n");
-        return 1;
-    }
-
-    return 0;
 }
 
 int main(int argc, char **argv)
@@ -619,21 +389,78 @@ int main(int argc, char **argv)
     namedWindow("DEPTH", CV_WINDOW_AUTOSIZE);
 
     //Trackbar
-    createTrackbar("Min Depth.", "DEPTH", &depth_min, 4000, NULL);
-    createTrackbar("Max Depth.", "DEPTH", &depth_max, 4000, NULL);
+    createTrackbar("Min Depth.", "DEPTH", &depth_min, FREENECT_DEPTH_MM_MAX_VALUE, NULL);
+    createTrackbar("Max Depth.", "DEPTH", &depth_max, FREENECT_DEPTH_MM_MAX_VALUE, NULL);
 
     kinect.width = 640;
     kinect.height = 480;
 
-    img_rgb_mat = Mat(kinect, CV_8UC3);
-    depth_mat = Mat(kinect, CV_16UC1);
+    int key = 0;
+    uint32_t timestamp;
+    uint32_t timestamp_depth;
+    unsigned char *data;
+    uint16_t *depth_data;
 
-    // INITIALIZE KINECT DEVICE
-    int problem = start_kinect(argc, argv);
-    if (problem) exit(1);
-
-    // SUSPEND EXECUTION OF CALLING THREAD
-    pthread_join(freenect_thread, NULL);
+    while((key = waitKey(1)))
+    {
+        if(key == -1){
+        #pragma omp parallel num_threads(2)
+        {
+            int thread_num = omp_get_thread_num();
+            if(thread_num == 0){
+                freenect_sync_get_video((void**)(&data), &timestamp, 0, FREENECT_VIDEO_RGB);
+                show_rgb(data);                    
+            }else if(thread_num == 1){
+                freenect_sync_get_depth((void**)(&depth_data), &timestamp_depth, 0, FREENECT_DEPTH_REGISTERED);
+                show_depth(depth_data);
+            }
+        }
+        }else{
+            if (key == CLOSE){
+                break;
+            }
+            if (key == DEPTH) {
+                freenect_sync_get_depth((void**)(&depth_data), &timestamp_depth, 0, FREENECT_DEPTH_REGISTERED);
+                save_depth(depth_data);
+            }
+            if (key == COLOR) {
+                freenect_sync_get_video((void**)(&data), &timestamp, 0, FREENECT_VIDEO_RGB);
+                save_rgb(data);
+            }
+            if (key == SR) {
+                Mat sr_frames[6];
+                for(auto i = 0;i<SR_SIZE;++i){
+                   if(i==0){
+                        freenect_sync_set_tilt_degs(10,0);
+                        sleep(5);
+                   }else if(i==2){
+                        freenect_sync_set_tilt_degs(-10,0);
+                        sleep(5);
+                   }else if(i==4){
+                        freenect_sync_set_tilt_degs(0,0);
+                        sleep(5);
+                   }
+                   freenect_sync_get_depth((void**)(&depth_data), &timestamp_depth, 0, FREENECT_DEPTH_REGISTERED);
+                   sr_frames[i] = Mat(kinect,CV_16UC1,depth_data);
+                }
+                Mat sr_image = superresolve(sr_frames,SR_SIZE,4);
+                save_sr(sr_image);
+                freenect_sync_set_tilt_degs(0,0);
+            }
+            if (key == DEPTH_MESH) {
+            }
+            if (key == SR_MESH) {
+            }
+            if (key == UP) {
+                freenect_sync_set_tilt_degs(3,0);
+            }
+            if (key == DOWN) {
+                freenect_sync_set_tilt_degs(-3,0);
+            }
+            if (key == ALL) {
+            }
+        }
+    }
 
     return 0;
 }
