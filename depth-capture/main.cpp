@@ -1,4 +1,4 @@
-#include <libfreenect/libfreenect_sync.h>
+#include <libfreenect_sync.h>
 
 #include <opencv2/opencv.hpp>
 #include <sstream>
@@ -202,7 +202,7 @@ int save_ply(Mat depth_mat, Mat color_mat, int mesh_type, int count) {
     FILE *fp;
 
     if ((fp = fopen(oss.str().c_str(), "w")) == NULL) {
-        printf("\nError: while creating file %s", oss.str());
+        printf("\nError: while creating file %s", oss.str().c_str());
         return 0;
     }
 
