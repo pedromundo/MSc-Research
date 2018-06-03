@@ -9,7 +9,7 @@
 #include <omp.h>
 #include <unistd.h>
 
-//Escape closes the applications
+//Escape closes the application
 #define CLOSE 27
 //Image capture keys
 #define DEPTH 'q'
@@ -129,6 +129,30 @@ void show_rgb (uchar *rgb) {
 }
 
 // ---------------------------------------------------------
+// Name:		clean_image
+// ---------------------------------------------------------
+// Description:	manually treshold a CV_16UC1 image, since
+// the chances of opencv working for this are kind hit-or-miss
+// between versions and operatins systems
+// ---------------------------------------------------------
+
+Mat clean_image(Mat input_image, int min_value, int max_value){
+    Mat output_image;
+    input_image.copyTo(output_image);
+    for(int i = 0; i < output_image.size().height; ++i)
+    {
+        for(int j = 0; j < output_image.size().width; ++j)
+        {
+            uint16_t &pixel = output_image.at<uint16_t>(i, j);
+            if(pixel > max_value || pixel < min_value){
+                pixel = 0;
+            }
+        }
+    }
+    return output_image;
+}
+
+// ---------------------------------------------------------
 // Name:		save_depth
 // ---------------------------------------------------------
 // Description:	create a file and save one depth frame
@@ -138,10 +162,8 @@ int save_depth (uint16_t *depth) {
     Mat depth_mat = Mat(kinect,CV_16UC1, depth);
     std::ostringstream oss;
     oss << capture_name << "_depth_" << count_depth*capture_step << ".png";
-    Mat clean_mat(depth_mat);
-    threshold(clean_mat,clean_mat,depth_max,0,cv::ThresholdTypes::THRESH_TOZERO_INV);
-    threshold(clean_mat,clean_mat,depth_min,0,cv::ThresholdTypes::THRESH_TOZERO);
-    imwrite(oss.str(), clean_mat);
+    depth_mat = clean_image(depth_mat,depth_min,depth_max);
+    imwrite(oss.str(), depth_mat);
     printf("%s saved!\n", oss.str().c_str());
     fflush(stdout);
     ++count_depth;
@@ -158,8 +180,8 @@ int save_sr (Mat sr_image) {
     std::ostringstream oss;
     oss << capture_name << "_sr_" << count_sr*capture_step << ".png";
     Mat clean_mat(sr_image);
-    threshold(clean_mat,clean_mat,depth_max,0,cv::ThresholdTypes::THRESH_TOZERO_INV);
-    threshold(clean_mat,clean_mat,depth_min,0,cv::ThresholdTypes::THRESH_TOZERO);
+    sr_image.copyTo(clean_mat);
+    clean_mat = clean_image(clean_mat,depth_min,depth_max);
     imwrite(oss.str(), clean_mat);
     printf("%s saved!\n", oss.str().c_str());
     fflush(stdout);
@@ -312,19 +334,15 @@ Mat superresolve(Mat lr_images[], unsigned int image_count, int resample_factor)
     Mat lr_images_upsampled[image_count]; //stored as float
     Mat alignment_matrices[image_count]; //affine transform matrices
     Mat hr_image;
-    for(size_t i = 0; i < image_count; ++i) {
-        imwrite(std::to_string(i)+="_after.png",lr_images[i]);
-    }
     float global_min = std::numeric_limits<float>::max(), global_max = std::numeric_limits<float>::min();
     //Pre-processing: get minimum and maximum values from the LR images we use
     //this information to remove extreme values from the HR image because some
     //non-linear noise might be added on the resampling and fusion phases
     //(i.e. remove all values outside of the observed range)
     for(size_t i = 0; i < image_count; ++i) {
-        threshold(lr_images[i],lr_images[i],depth_max,0,cv::ThresholdTypes::THRESH_TOZERO_INV);
-        threshold(lr_images[i],lr_images[i],depth_min,0,cv::ThresholdTypes::THRESH_TOZERO);
+        lr_images[i] = clean_image(lr_images[i],depth_min,depth_max);
         lr_images[i].convertTo(lr_images[i],CV_32FC1);
-
+        alignment_matrices[i] = Mat::eye(2, 3, CV_32F);
         double local_min, local_max;
         Mat mask = lr_images[i] > 0;
 
@@ -378,8 +396,7 @@ Mat superresolve(Mat lr_images[], unsigned int image_count, int resample_factor)
     //system of the Microsoft Kinect sensor
     cv::resize(hr_image,hr_image,hr_image.size()/resample_factor,0,0,INTER_NEAREST);
     hr_image.convertTo(hr_image,CV_16UC1);
-    threshold(hr_image,hr_image,global_max,0,cv::ThresholdTypes::THRESH_TOZERO_INV);
-    threshold(hr_image,hr_image,global_min,0,cv::ThresholdTypes::THRESH_TOZERO);
+    hr_image = clean_image(hr_image,(int)global_min,(int)global_max);
     return hr_image;
 }
 
@@ -399,9 +416,11 @@ int main(int argc, char **argv)
 
     freenect_sync_set_tilt_degs(0,0);
 
-    while((key = waitKey(1)))
+    while(key = waitKey(1))
     {
-        if(key == -1) {
+        //std::cout << key << std::endl;
+        //opencv apparently cant decide whether 'no key' is -1 or 255. (Yes, I tried masking and casting)
+        if(key == 255 || key==-1) {
             uint32_t timestamp;
             uint32_t timestamp_depth;
             unsigned char *data;
@@ -443,15 +462,37 @@ int main(int argc, char **argv)
                     freenect_sync_get_depth((void**)(&depth_data), &timestamp_depth, 0, FREENECT_DEPTH_REGISTERED);
                     std::cout << timestamp_depth << std::endl;
                     Mat(kinect,CV_16UC1,depth_data).copyTo(sr_frames[i]);
-                    imwrite(std::to_string(i)+="_before.png",sr_frames[i]);
                 }
                 Mat sr_image = superresolve(sr_frames,SR_SIZE,4);
                 save_sr(sr_image);
                 freenect_sync_set_tilt_degs(0,0);
             }
             if (key == DEPTH_MESH) {
+                uint32_t timestamp_depth;
+                uint16_t *depth_data;
+                freenect_sync_get_depth((void**)(&depth_data), &timestamp_depth, 0, FREENECT_DEPTH_REGISTERED);
+                uint32_t timestamp_color;
+                unsigned char *color_data;
+                freenect_sync_get_video((void**)(&color_data), &timestamp_color, 0, FREENECT_VIDEO_RGB);
+                save_ply(Mat(kinect,CV_16UC1,depth_data),Mat(kinect,CV_8UC3,color_data),MESH_TYPE_REGULAR,count_depth_mesh);
             }
             if (key == SR_MESH) {
+                uint32_t timestamp_color;
+                unsigned char *color_data;
+                freenect_sync_get_video((void**)(&color_data), &timestamp_color, 0, FREENECT_VIDEO_RGB);
+
+                Mat sr_frames[SR_SIZE];
+                for(int i = 0; i<SR_SIZE; ++i) {
+                    uint32_t timestamp_depth;
+                    uint16_t *depth_data;
+                    freenect_sync_set_tilt_degs(i-3,0);
+                    sleep(1);
+                    freenect_sync_get_depth((void**)(&depth_data), &timestamp_depth, 0, FREENECT_DEPTH_REGISTERED);
+                    std::cout << timestamp_depth << std::endl;
+                    Mat(kinect,CV_16UC1,depth_data).copyTo(sr_frames[i]);
+                }
+                Mat sr_image = superresolve(sr_frames,SR_SIZE,4);
+                save_ply(sr_image,Mat(kinect,CV_8UC3,color_data),MESH_TYPE_SR,count_sr_mesh);
             }
             if (key == UP) {
                 freenect_sync_set_tilt_degs(3,0);
