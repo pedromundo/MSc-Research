@@ -37,8 +37,8 @@ static int count_sr = 0;
 static int count_depth_mesh = 0;
 static int count_sr_mesh = 0;
 
-static std::string capture_name = "cap";
-static int capture_step = 30;
+static std::string capture_name = "estatua";
+static int capture_step = 45;
 
 //Depth thresholds in mm
 int depth_min = 0;
@@ -353,11 +353,12 @@ Mat superresolve(Mat lr_images[], unsigned int image_count, int resample_factor)
     }
 
     //Registration Phase - Subpixel registration of all LR images to the first
+    #pragma omp parallel for
     for(size_t i = 0; i < image_count; ++i) {
-        Mat template_image = lr_images[(int)ceil(image_count/2.0)]; //first LR image
+        Mat template_image = lr_images[(int)(image_count/2.0)]; //middle LR image
         findTransformECC(template_image,lr_images[i],alignment_matrices[i], MOTION_AFFINE, \
                          TermCriteria(TermCriteria::COUNT+TermCriteria::EPS, 200, 1E-12));
-        std::cout << "Alignment " << i << "->" << (int)ceil(image_count/2.0) << " = " << alignment_matrices[i] << std::endl;
+        std::cout << "Alignment " << i << "->" << (int)(image_count/2.0) << " = " << alignment_matrices[i] << std::endl;
     }
 
     //Upsample + Warp Phase - Upsample all LR images and use registration information
@@ -475,12 +476,12 @@ int main(int argc, char **argv)
                 unsigned char *color_data;
                 freenect_sync_get_video((void**)(&color_data), &timestamp_color, 0, FREENECT_VIDEO_RGB);
                 save_ply(Mat(kinect,CV_16UC1,depth_data),Mat(kinect,CV_8UC3,color_data),MESH_TYPE_REGULAR,count_depth_mesh);
+                ++count_depth_mesh;
             }
             if (key == SR_MESH) {
                 uint32_t timestamp_color;
                 unsigned char *color_data;
                 freenect_sync_get_video((void**)(&color_data), &timestamp_color, 0, FREENECT_VIDEO_RGB);
-
                 Mat sr_frames[SR_SIZE];
                 for(int i = 0; i<SR_SIZE; ++i) {
                     uint32_t timestamp_depth;
@@ -493,6 +494,7 @@ int main(int argc, char **argv)
                 }
                 Mat sr_image = superresolve(sr_frames,SR_SIZE,4);
                 save_ply(sr_image,Mat(kinect,CV_8UC3,color_data),MESH_TYPE_SR,count_sr_mesh);
+                ++count_sr_mesh;
             }
             if (key == UP) {
                 freenect_sync_set_tilt_degs(3,0);
@@ -501,6 +503,55 @@ int main(int argc, char **argv)
                 freenect_sync_set_tilt_degs(-3,0);
             }
             if (key == ALL) {
+                //depth
+                uint32_t timestamp_depth;
+                uint16_t *depth_data;
+                freenect_sync_get_depth((void**)(&depth_data), &timestamp_depth, 0, FREENECT_DEPTH_REGISTERED);
+                save_depth(depth_data);
+
+                //color
+                uint32_t timestamp;
+                unsigned char *data;
+                freenect_sync_get_video((void**)(&data), &timestamp, 0, FREENECT_VIDEO_RGB);
+                save_rgb(data);
+
+                //depth sr
+                Mat sr_frames[SR_SIZE];
+                for(int i = 0; i<SR_SIZE; ++i) {
+                    uint32_t timestamp_depth;
+                    uint16_t *depth_data;
+                    freenect_sync_set_tilt_degs(i-3,0);
+                    sleep(1);
+                    freenect_sync_get_depth((void**)(&depth_data), &timestamp_depth, 0, FREENECT_DEPTH_REGISTERED);
+                    std::cout << timestamp_depth << std::endl;
+                    Mat(kinect,CV_16UC1,depth_data).copyTo(sr_frames[i]);
+                }
+                Mat sr_image = superresolve(sr_frames,SR_SIZE,4);
+                save_sr(sr_image);
+                freenect_sync_set_tilt_degs(0,0);
+
+                //depth mesh
+                freenect_sync_get_depth((void**)(&depth_data), &timestamp_depth, 0, FREENECT_DEPTH_REGISTERED);
+                uint32_t timestamp_color;
+                unsigned char *color_data;
+                freenect_sync_get_video((void**)(&color_data), &timestamp_color, 0, FREENECT_VIDEO_RGB);
+                save_ply(Mat(kinect,CV_16UC1,depth_data),Mat(kinect,CV_8UC3,color_data),MESH_TYPE_REGULAR,count_depth_mesh);
+                ++count_depth_mesh;
+
+                //depth_sr_mesh
+                freenect_sync_get_video((void**)(&color_data), &timestamp_color, 0, FREENECT_VIDEO_RGB);
+                for(int i = 0; i<SR_SIZE; ++i) {
+                    uint32_t timestamp_depth;
+                    uint16_t *depth_data;
+                    freenect_sync_set_tilt_degs(i-3,0);
+                    sleep(1);
+                    freenect_sync_get_depth((void**)(&depth_data), &timestamp_depth, 0, FREENECT_DEPTH_REGISTERED);
+                    std::cout << timestamp_depth << std::endl;
+                    Mat(kinect,CV_16UC1,depth_data).copyTo(sr_frames[i]);
+                }
+                sr_image = superresolve(sr_frames,SR_SIZE,4);
+                save_ply(sr_image,Mat(kinect,CV_8UC3,color_data),MESH_TYPE_SR,count_sr_mesh);
+                ++count_sr_mesh;
             }
         }
     }
