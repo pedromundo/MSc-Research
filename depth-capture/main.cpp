@@ -355,10 +355,10 @@ Mat superresolve(Mat lr_images[], unsigned int image_count, int resample_factor)
     //Registration Phase - Subpixel registration of all LR images to the first
     #pragma omp parallel for
     for(size_t i = 0; i < image_count; ++i) {
-        Mat template_image = lr_images[(int)(image_count/2.0)]; //middle LR image
+        Mat template_image = lr_images[0]; //middle LR image
         findTransformECC(template_image,lr_images[i],alignment_matrices[i], MOTION_AFFINE, \
                          TermCriteria(TermCriteria::COUNT+TermCriteria::EPS, 200, 1E-12));
-        std::cout << "Alignment " << i << "->" << (int)(image_count/2.0) << " = " << alignment_matrices[i] << std::endl;
+        std::cout << "Alignment " << i << "->" << 0 << " = " << alignment_matrices[i] << std::endl;
     }
 
     //Upsample + Warp Phase - Upsample all LR images and use registration information
