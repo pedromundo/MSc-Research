@@ -1,2 +1,2 @@
 all:
-	g++ -Ofast main.cpp -I/usr/include/eigen3 -I/usr/include/vtk -lpcl_io_ply -lboost_system -lpcl_io -lpcl_common -lpcl_common -lpcl_visualization -lvtkCommonDataModel -lvtkCommonCore -lvtkRenderingCore -lvtkCommonMath
+	g++ -Ofast main.cpp -I/usr/include/eigen3 -I/usr/include/vtk -lpcl_io_ply -lboost_system -lpcl_io -lpcl_common -lpcl_visualization -lvtkCommonDataModel -lvtkCommonCore -lvtkRenderingCore -lvtkCommonMath -lpcl_registration -lpcl_search

@@ -4,19 +4,32 @@
 #include <pcl/point_cloud.h>
 #include <pcl/common/transforms.h>
 #include <pcl/visualization/pcl_visualizer.h>
+#include <pcl/registration/icp.h>
+
+
 
 int
 main (int argc, char** argv)
 {
   float theta = M_PI/4;
-  pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud (new pcl::PointCloud<pcl::PointXYZRGBNormal>);
+  pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_45 (new pcl::PointCloud<pcl::PointXYZRGBNormal>);
+  pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_0 (new pcl::PointCloud<pcl::PointXYZRGBNormal>);
 
-  if (pcl::io::loadPLYFile<pcl::PointXYZRGBNormal> ("dataset-estatua-sr/estatua_srmesh_0.ply", *cloud) == -1) //* load the file
+  pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr ptr_aligned(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
+  pcl::PointCloud<pcl::PointXYZRGBNormal> aligned;
+  *ptr_aligned = aligned;
+
+  if (pcl::io::loadPLYFile<pcl::PointXYZRGBNormal> ("dataset-estatua-sr/estatua_mesh_45.ply", *cloud_45) == -1) //* load the file
   {
     PCL_ERROR ("Couldn't read file test_pcd.pcd \n");
     return (-1);
   }
-  std::cout << "Loaded "
+  if (pcl::io::loadPLYFile<pcl::PointXYZRGBNormal> ("dataset-estatua-sr/estatua_mesh_0.ply", *cloud_0) == -1) //* load the file
+  {
+    PCL_ERROR ("Couldn't read file test_pcd.pcd \n");
+    return (-1);
+  }
+  /*std::cout << "Loaded "
             << cloud->width * cloud->height
             << " data points from test_pcd.pcd with the following fields: "
             << std::endl;
@@ -29,45 +42,65 @@ main (int argc, char** argv)
               << " "    << (int)cloud->points[i].b
               << " "    << cloud->points[i].normal_x
               << " "    << cloud->points[i].normal_y
-              << " "    << cloud->points[i].normal_z << std::endl;
+              << " "    << cloud->points[i].normal_z << std::endl;*/
 
-  /*  METHOD #2: Using a Affine3f
-    This method is easier and less error prone
-  */
-  Eigen::Affine3f transform_2 = Eigen::Affine3f::Identity();
+  Eigen::Affine3f transform = Eigen::Affine3f::Identity();
 
   // Define a translation of 2.5 meters on the x axis.
-  transform_2.translation() << 2.5, 0.0, 0.0;
+  //transform.translation() << 2.5, 0.0, 0.0;
 
   // The same rotation matrix as before; theta radians around Z axis
-  transform_2.rotate (Eigen::AngleAxisf (theta, Eigen::Vector3f::UnitZ()));
+  //transform.rotate (Eigen::AngleAxisf (M_PI_4, Eigen::Vector3f::UnitY()));
 
   // Print the transformation
   printf ("\nMethod #2: using an Affine3f\n");
-  std::cout << transform_2.matrix() << std::endl;
+  std::cout << transform.matrix() << std::endl;
+
+  Eigen::Matrix3f rotation (Eigen::AngleAxisf((45.0*M_PI) / 180, Eigen::Vector3f::UnitY()));
+  Eigen::Vector4f centroid (Eigen::Vector4f::Zero());
+  transform.rotate(rotation);
+  pcl::compute3DCentroid(*cloud_45, centroid);
+  Eigen::Vector4f centroid_new (Eigen::Vector4f::Zero());
+  centroid_new.head<3>() = rotation * centroid.head<3>();
+  transform.translation() = centroid.head<3>() - centroid_new.head<3>();
+  pcl::transformPointCloud(*cloud_45, *cloud_45, transform);
+  std::cout << transform.matrix() << std::endl << std::endl;
 
   // Executing the transformation
-  pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr transformed_cloud (new pcl::PointCloud<pcl::PointXYZRGBNormal> ());
-  // You can either apply transform_1 or transform_2; they are the same
-  pcl::transformPointCloud (*cloud, *transformed_cloud, transform_2);
-
-  printf(  "\nPoint cloud colors :  white  = original point cloud\n"
-      "                        red  = transformed point cloud\n");
+  //pcl::transformPointCloud (*cloud_45, *cloud_45, transform);
   pcl::visualization::PCLVisualizer viewer ("Matrix transformation example");
 
-   // Define R,G,B colors for the point cloud
-  pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZRGBNormal> cloud_color_handler (cloud, 255, 255, 255);
-  // We add the point cloud to the viewer and pass the color handler
-  viewer.addPointCloud (cloud, cloud_color_handler, "original_cloud");
+  //Creating a color handler
+  pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZRGBNormal> cloud_0_color_hander (cloud_0, 255, 0, 0);
+  pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZRGBNormal> cloud_45_color_hander (cloud_45, 0, 0, 255);
 
-  pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZRGBNormal> transformed_cloud_color_handler (transformed_cloud, 230, 20, 20); // Red
-  viewer.addPointCloud (transformed_cloud, transformed_cloud_color_handler, "transformed_cloud");
+  pcl::IterativeClosestPoint<pcl::PointXYZRGBNormal, pcl::PointXYZRGBNormal> icp;
+  icp.setInputSource(cloud_45);
+  icp.setInputTarget(cloud_0);
+  icp.setMaximumIterations (100);
+  icp.setTransformationEpsilon (1e-9);
+  //icp.setRANSACOutlierRejectionThreshold(0.005);
+  //icp.setMaxCorrespondenceDistance (0.5);
+  pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZRGBNormal> aligned_color_hander (ptr_aligned, 0, 255, 0);
+  icp.align(aligned);
+  *ptr_aligned = aligned;
+  std::cout << "has converged:" << icp.hasConverged() << " score: " <<
+  icp.getFitnessScore() << std::endl;
+  std::cout << icp.getFinalTransformation() << std::endl;
+
+  // We add the point cloud to the viewer
+  viewer.addPointCloud (cloud_0, cloud_0_color_hander, "base_cloud");
+  viewer.addPointCloud (ptr_aligned, aligned_color_hander, "ICP CLOUD");
+  viewer.addPointCloud (cloud_45, cloud_45_color_hander, "transformed_cloud");
 
   viewer.addCoordinateSystem (1.0, "cloud", 0);
   viewer.setBackgroundColor(0.05, 0.05, 0.05, 0); // Setting background to a dark grey
-  viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 2, "original_cloud");
+
+  viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "base_cloud");
   viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 2, "transformed_cloud");
-  //viewer.setPosition(800, 400); // Setting visualiser window position
+  viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "ICP CLOUD");
+
+  pcl::io::savePLYFileASCII("teste.ply",aligned);
 
   while (!viewer.wasStopped ()) { // Display the visualiser until 'q' key is pressed
     viewer.spinOnce ();
