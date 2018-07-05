@@ -6,75 +6,76 @@
 #include <pcl/visualization/pcl_visualizer.h>
 #include <pcl/registration/icp.h>
 
-int main (int argc, char** argv)
+using namespace std;
+
+int main(int argc, char **argv)
 {
-  float theta = M_PI/4;
-  pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_0 (new pcl::PointCloud<pcl::PointXYZRGBNormal>);
-  pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_45 (new pcl::PointCloud<pcl::PointXYZRGBNormal>);
-  pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_90 (new pcl::PointCloud<pcl::PointXYZRGBNormal>);
+  static const uint NUM_CAPTURES = 3;
+  static const uint CAPTURE_STEP = 45;
 
-  //Creating color handlers
-  pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZRGBNormal> cloud_0_color_hander (cloud_0, 255, 0, 0);
-  pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZRGBNormal> cloud_45_color_hander (cloud_45, 0, 0, 255);
-  pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZRGBNormal> cloud_90_color_hander (cloud_90, 0, 255, 255);
+  float theta = M_PI / 4;
+  typedef pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr PointCloudWithNormals;
+  typedef pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZRGBNormal> PointCloudColorHandler;
 
-  pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr aligned(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
+  vector<PointCloudWithNormals> point_clouds;
 
-  if (pcl::io::loadPLYFile<pcl::PointXYZRGBNormal> ("dataset-estatua-sr/estatua_mesh_0.ply", *cloud_0) == -1) //* load the file
+  PointCloudWithNormals aligned(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
+  PointCloudWithNormals accumulated(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
+
+  for (size_t i = 0; i < NUM_CAPTURES; ++i)
   {
-    PCL_ERROR ("Couldn't read file test_pcd.pcd \n");
-    return (-1);
-  }
-  if (pcl::io::loadPLYFile<pcl::PointXYZRGBNormal> ("dataset-estatua-sr/estatua_mesh_45.ply", *cloud_45) == -1) //* load the file
-  {
-    PCL_ERROR ("Couldn't read file test_pcd.pcd \n");
-    return (-1);
-  }
-  if (pcl::io::loadPLYFile<pcl::PointXYZRGBNormal> ("dataset-estatua-sr/estatua_mesh_90.ply", *cloud_90) == -1) //* load the file
-  {
-    PCL_ERROR ("Couldn't read file test_pcd.pcd \n");
-    return (-1);
+    point_clouds.push_back(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr(new pcl::PointCloud<pcl::PointXYZRGBNormal>));
+    if (pcl::io::loadPLYFile<pcl::PointXYZRGBNormal>(string("dataset-estatua-sr/estatua_mesh_") += (to_string(i * CAPTURE_STEP)) += ".ply", *point_clouds[i]) != -1)
+    {
+      cout << (string("MESH ") += (to_string(i * CAPTURE_STEP)) += " LOADED ALRIGHT!") << endl;
+    }
   }
 
-  //Rotating around centroid, might be wrong
-  Eigen::Affine3f transform = Eigen::Affine3f::Identity();
-  Eigen::Matrix3f rotation (Eigen::AngleAxisf((45.0*M_PI) / 180, Eigen::Vector3f::UnitY()));
-  Eigen::Vector4f centroid (Eigen::Vector4f::Zero());
-  transform.rotate(rotation);
-  pcl::compute3DCentroid(*cloud_45, centroid);
-  Eigen::Vector4f centroid_new (Eigen::Vector4f::Zero());
-  centroid_new.head<3>() = rotation * centroid.head<3>();
-  transform.translation() = centroid.head<3>() - centroid_new.head<3>();
-  pcl::transformPointCloud(*cloud_45, *cloud_45, transform);
+  //Accumulated cloud starts with the first cloud
+  pcl::copyPointCloud(*point_clouds[0], *accumulated);
 
-  //ICP Alignment and Registration
-  pcl::IterativeClosestPoint<pcl::PointXYZRGBNormal, pcl::PointXYZRGBNormal> icp;
-  icp.setInputSource(cloud_45);
-  icp.setInputTarget(cloud_0);
-  icp.setMaximumIterations (100);
-  icp.setTransformationEpsilon (1e-9);
-  pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZRGBNormal> aligned_color_hander (aligned, 0, 255, 0);
-  icp.align(*aligned);
-  std::cout << "has converged:" << icp.hasConverged() << " score: " <<
-  icp.getFitnessScore() << std::endl;
-  std::cout << icp.getFinalTransformation() << std::endl;
+  for (size_t i = 1; i < NUM_CAPTURES; ++i)
+  {
+    //Rotating around the centroid of the first cloud , might be wrong -- hoping ICP fixes it
+    Eigen::Affine3f transform = Eigen::Affine3f::Identity();
+    Eigen::Matrix3f rotation(Eigen::AngleAxisf((i*CAPTURE_STEP * M_PI) / 180, Eigen::Vector3f::UnitY()));
+    Eigen::Vector4f centroid(Eigen::Vector4f::Zero());
+    transform.rotate(rotation);
+    centroid.x() = -26.721001;
+    centroid.y() = -47.792292;
+    centroid.z() = -584.220918;
+    centroid.w() = 1;
+    /*pcl::compute3DCentroid(*point_clouds[i], centroid);*/
+    Eigen::Vector4f centroid_new(Eigen::Vector4f::Zero());
+    centroid_new.head<3>() = rotation * centroid.head<3>();
+    transform.translation() = centroid.head<3>() - centroid_new.head<3>();
+    pcl::transformPointCloud(*point_clouds[i], *point_clouds[i], transform);
+    //ICP Alignment and Registration
+    pcl::IterativeClosestPoint<pcl::PointXYZRGBNormal, pcl::PointXYZRGBNormal> icp;
+    icp.setInputSource(point_clouds[i]);
+    icp.setInputTarget(accumulated);
+    icp.setMaximumIterations(200);
+    icp.setTransformationEpsilon(1e-9);
+    icp.align(*aligned);
+    cout << "has converged:" << icp.hasConverged() << " score: " << icp.getFitnessScore() << endl;
+    cout << icp.getFinalTransformation() << endl;
+    *accumulated = *accumulated + *aligned;
+  }
 
   //Visualization
-  pcl::visualization::PCLVisualizer viewer ("Matrix transformation example");
-  viewer.addPointCloud (cloud_0, cloud_0_color_hander, "base_cloud");
-  viewer.addPointCloud (aligned, aligned_color_hander, "ICP CLOUD");
-  viewer.addPointCloud (cloud_45, cloud_45_color_hander, "transformed_cloud");
-  viewer.addCoordinateSystem (1.0, "cloud", 0);
+ PointCloudColorHandler accumulated_color_hander(aligned, 255, 0, 0);
+
+  pcl::visualization::PCLVisualizer viewer("Matrix transformation example");
+  viewer.addPointCloud(accumulated, accumulated_color_hander, "Accumulated Cloud");
+  viewer.addCoordinateSystem(1.0, "cloud", 0);
   viewer.setBackgroundColor(0, 0, 0, 0); // Setting background to a dark grey
-  viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "base_cloud");
-  viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 2, "transformed_cloud");
-  viewer.setPointCloudRenderingProperties (pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "ICP CLOUD");
+  viewer.setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "Accumulated Cloud");
 
   //Save aligned mesh
-  pcl::io::savePLYFileASCII("teste.ply",(*cloud_0 + *aligned));
-  while (!viewer.wasStopped ()) { // Display the visualiser until 'q' key is pressed
-    viewer.spinOnce ();
+  pcl::io::savePLYFileASCII("accumulated.ply", *accumulated);
+  while (!viewer.wasStopped())
+  { // Display the visualiser until 'q' key is pressed
+    viewer.spinOnce();
   }
-
   return (0);
 }
