@@ -10,16 +10,15 @@ using namespace std;
 
 int main(int argc, char **argv)
 {
-  static const uint NUM_CAPTURES = 3;
+  static const uint NUM_CAPTURES = 8;
   static const uint CAPTURE_STEP = 45;
 
   float theta = M_PI / 4;
   typedef pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr PointCloudWithNormals;
-  typedef pcl::visualization::PointCloudColorHandlerCustom<pcl::PointXYZRGBNormal> PointCloudColorHandler;
+  typedef pcl::visualization::PointCloudColorHandlerRGBField<pcl::PointXYZRGBNormal> PointCloudColorHandler;
 
   vector<PointCloudWithNormals> point_clouds;
 
-  PointCloudWithNormals aligned(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
   PointCloudWithNormals accumulated(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
 
   for (size_t i = 0; i < NUM_CAPTURES; ++i)
@@ -29,23 +28,24 @@ int main(int argc, char **argv)
     {
       cout << (string("MESH ") += (to_string(i * CAPTURE_STEP)) += " LOADED ALRIGHT!") << endl;
     }
-  }
+  }\
 
   //Accumulated cloud starts with the first cloud
   pcl::copyPointCloud(*point_clouds[0], *accumulated);
 
   for (size_t i = 1; i < NUM_CAPTURES; ++i)
   {
-    //Rotating around the centroid of the first cloud , might be wrong -- hoping ICP fixes it
+    PointCloudWithNormals aligned(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
+    //Specifying the center of rotation
     Eigen::Affine3f transform = Eigen::Affine3f::Identity();
-    Eigen::Matrix3f rotation(Eigen::AngleAxisf((i*CAPTURE_STEP * M_PI) / 180, Eigen::Vector3f::UnitY()));
+    Eigen::Matrix3f rotation(Eigen::AngleAxisf((i * CAPTURE_STEP * M_PI) / 180, Eigen::Vector3f::UnitY()));
     Eigen::Vector4f centroid(Eigen::Vector4f::Zero());
     transform.rotate(rotation);
     centroid.x() = -26.721001;
     centroid.y() = -47.792292;
-    centroid.z() = -584.220918;
+    centroid.z() = -620.000000; //works well, probably the center of the table
     centroid.w() = 1;
-    /*pcl::compute3DCentroid(*point_clouds[i], centroid);*/
+    //pcl::compute3DCentroid(*point_clouds[0], centroid);
     Eigen::Vector4f centroid_new(Eigen::Vector4f::Zero());
     centroid_new.head<3>() = rotation * centroid.head<3>();
     transform.translation() = centroid.head<3>() - centroid_new.head<3>();
@@ -57,18 +57,19 @@ int main(int argc, char **argv)
     icp.setMaximumIterations(200);
     icp.setTransformationEpsilon(1e-9);
     icp.align(*aligned);
-    cout << "has converged:" << icp.hasConverged() << " score: " << icp.getFitnessScore() << endl;
+    cout << (i*CAPTURE_STEP) << " has converged -- "<< " score: " << icp.getFitnessScore() << endl;
     cout << icp.getFinalTransformation() << endl;
     *accumulated = *accumulated + *aligned;
+    //*accumulated = (*accumulated + *point_clouds[i]);
   }
 
   //Visualization
- PointCloudColorHandler accumulated_color_hander(aligned, 255, 0, 0);
+  PointCloudColorHandler accumulated_color_hander(accumulated);
 
   pcl::visualization::PCLVisualizer viewer("Matrix transformation example");
   viewer.addPointCloud(accumulated, accumulated_color_hander, "Accumulated Cloud");
   viewer.addCoordinateSystem(1.0, "cloud", 0);
-  viewer.setBackgroundColor(0, 0, 0, 0); // Setting background to a dark grey
+  viewer.setBackgroundColor(0, 0, 0, 0); // Setting background to black
   viewer.setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 1, "Accumulated Cloud");
 
   //Save aligned mesh
