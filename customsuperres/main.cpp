@@ -4,8 +4,8 @@
 #include <iostream>
 #include <limits>
 
-#define NUM_IMAGES 6
-#define RESAMPLE_FACTOR 6
+#define NUM_IMAGES 16
+#define RESAMPLE_FACTOR 4
 
 using namespace cv;
 
