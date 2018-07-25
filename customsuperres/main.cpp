@@ -120,12 +120,11 @@ int save_ply(Mat depth_mat, std::string filename, float min_value = std::numeric
         for (j = 0; j < depth_mat.size().width; j++)
         {
             uint16_t z_in_mm = depth_mat.at<uint16_t>(i, j);
-            double cx = 313.68782938, cy = 259.01834898, fx_inv = 1 / 526.37013657, fy_inv = fx_inv;
-
+            double fx = 572.882768, fy = 542.739980, cx = 314.649173, cy = 240.160459;
             if (z_in_mm != 0 && z_in_mm >= min_value && z_in_mm <= max_value)
             {
-                double vx = z_in_mm * (j - cx) * fx_inv;
-                double vy = -z_in_mm * (i - cy) * fy_inv;
+                double vx = z_in_mm * (j - cx) * (1/fx);
+                double vy = -z_in_mm * (i - cy) * (1/fy);
                 Vec3f normal = normal_mat.at<Vec3f>(i, j);
                 fprintf(fp, "%.6lf %.6lf %.6lf %.6lf %.6lf %.6lf %d %d %d\n",
                         (double)vx, (double)vy, (double)-z_in_mm, (double)normal[0],
@@ -234,8 +233,9 @@ int main(int argc, char **argv)
     }
 
     //Downsample the HR image back to 640x480 to keep it valid within the coordinate
-    //system of the Microsoft Kinect sensor
-    cv::resize(hr_image, hr_image, hr_image.size() / RESAMPLE_FACTOR, 0, 0, INTER_NEAREST);
+    //system of the Microsoft Kinect sensor - lanczos removes some artifacts with
+    //no apparent downsides
+    cv::resize(hr_image, hr_image, hr_image.size() / RESAMPLE_FACTOR, 0, 0, INTER_LANCZOS4);
     hr_image.convertTo(hr_image, CV_16UC1);
     save_ply(hr_image, "cap_depth_hr.ply", global_min, global_max);
 }
