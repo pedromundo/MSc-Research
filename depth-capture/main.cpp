@@ -27,17 +27,15 @@
 
 using namespace cv;
 
-static int freenect_angle = 0;
-
-static int count_depth = 0;
-static int count_burst = 0;
-static int count_color = 0;
-static int count_sr = 0;
-static int count_depth_mesh = 0;
-static int count_sr_mesh = 0;
+static unsigned int count_depth = 0;
+static unsigned int count_burst = 0;
+static unsigned int count_color = 0;
+static unsigned int count_sr = 0;
+static unsigned int count_depth_mesh = 0;
+static unsigned int count_sr_mesh = 0;
 
 static std::string capture_name = "estatua";
-static int capture_step = 45;
+static int capture_step = 20;
 
 //Depth thresholds in mm
 int depth_min = 0;
@@ -50,34 +48,6 @@ static Size kinect;
 static Mat depth_mat_filtered;      //filtered depth data
 static Mat depth_mat_float;         //depth data converted to float
 static Mat depth_mat_float_filtered; //filtered depth data converted to float
-
-/**********************************************************************************************************
-
-########     ################
-# main # --- # start_kinect #
-########     ################
-                    |
-             #######################     #################     ##############	  ########
-             # freenect_threadfunc # --- # depthCallback # --- # show_depth # --- # lerp #
-             #######################     #################     ##############	  ########
-                    |                           |
-                    |                           |              ##############
-                    |                           -------------- # save_depth #
-                    |                                          ##############
-                    |
-                    |                ###############    ############
-                    ---------------- # rgbCallback # -- # show_rgb #
-                                     ###############    ############
-                                         |
-                                         |              ############
-                                         -------------- # save_ply #
-                                         |				############
-                                         |
-                                         |              ############
-                                         -------------- # save_rgb #
-                                                        ############
-
-**********************************************************************************************************/
 
 inline double lerp(double a, double b, double f)
 {
@@ -181,7 +151,7 @@ int save_depth_burst(uint16_t *depth, unsigned int frame_count) {
     std::ostringstream oss;
     oss << capture_name << "_burst_" << count_burst*capture_step << "_" << frame_count << ".png";
     depth_mat = clean_image(depth_mat,depth_min,depth_max);
-    imwrite(oss.str(), depth_mat*10);
+    imwrite(oss.str(), depth_mat);
     printf("%s saved!\n", oss.str().c_str());
     fflush(stdout);
     return 1;
