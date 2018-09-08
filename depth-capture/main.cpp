@@ -1,5 +1,4 @@
-#include <libfreenect/libfreenect_sync.h>
-
+#include <libfreenect_sync.h>
 #include <opencv2/opencv.hpp>
 #include <sstream>
 
@@ -15,9 +14,8 @@
 #define DEPTH 'q'
 #define SR 'w'
 #define COLOR 'e'
+#define BURST 'b'
 #define ALL 'A'
-#define UP 'U'
-#define DOWN 'J'
 //Mesh capture keys
 #define DEPTH_MESH 'Q'
 #define SR_MESH 'W'
@@ -25,13 +23,14 @@
 //Constants
 #define MESH_TYPE_REGULAR 1
 #define MESH_TYPE_SR 2
-#define SR_SIZE 7
+#define SR_SIZE 16
 
 using namespace cv;
 
 static int freenect_angle = 0;
 
 static int count_depth = 0;
+static int count_burst = 0;
 static int count_color = 0;
 static int count_sr = 0;
 static int count_depth_mesh = 0;
@@ -171,6 +170,24 @@ int save_depth (uint16_t *depth) {
 }
 
 // ---------------------------------------------------------
+// Name:		save_depth_burst
+// ---------------------------------------------------------
+// Description:	create a file and save one depth frame from
+// a burst sequence
+// ---------------------------------------------------------
+
+int save_depth_burst(uint16_t *depth, unsigned int frame_count) {
+    Mat depth_mat = Mat(kinect,CV_16UC1, depth);
+    std::ostringstream oss;
+    oss << capture_name << "_burst_" << count_burst*capture_step << "_" << frame_count << ".png";
+    depth_mat = clean_image(depth_mat,depth_min,depth_max);
+    imwrite(oss.str(), depth_mat*10);
+    printf("%s saved!\n", oss.str().c_str());
+    fflush(stdout);
+    return 1;
+}
+
+// ---------------------------------------------------------
 // Name:		save_sr
 // ---------------------------------------------------------
 // Description:	create a file and save one sr frame
@@ -231,6 +248,8 @@ int save_ply(Mat depth_mat, Mat color_mat, int mesh_type, int count) {
     int i, j;
 
     //bilateral filtering of the depth image
+    //disabled for now because super resolution
+    //ends up smoothing out the noise
     /*depth_mat.convertTo(depth_mat_float, CV_32FC1);
     bilateralFilter(depth_mat_float, depth_mat_float_filtered, -1, 30, 4.5);
     printf("Bilateral Filter Done!\n");
@@ -455,6 +474,15 @@ int main(int argc, char **argv)
                 freenect_sync_get_depth((void**)(&depth_data), &timestamp_depth, 0, FREENECT_DEPTH_REGISTERED);
                 save_depth(depth_data);
             }
+            if (key == BURST) {
+                uint32_t timestamp_depth;
+                uint16_t *depth_data;
+                for(unsigned int i = 0; i < SR_SIZE; ++i){
+                    freenect_sync_get_depth((void**)(&depth_data), &timestamp_depth, 0, FREENECT_DEPTH_REGISTERED);
+                    save_depth_burst(depth_data, i);
+                }
+                ++count_burst;
+            }
             if (key == COLOR) {
                 uint32_t timestamp;
                 unsigned char *data;
@@ -503,12 +531,6 @@ int main(int argc, char **argv)
                 Mat sr_image = superresolve(sr_frames,SR_SIZE,4);
                 save_ply(sr_image,Mat(kinect,CV_8UC3,color_data),MESH_TYPE_SR,count_sr_mesh);
                 ++count_sr_mesh;
-            }
-            if (key == UP) {
-                freenect_sync_set_tilt_degs(3,0);
-            }
-            if (key == DOWN) {
-                freenect_sync_set_tilt_degs(-3,0);
             }
             if (key == ALL) {
                 //depth
