@@ -27,9 +27,7 @@ using namespace cv;
 static unsigned int count_depth = 0;
 static unsigned int count_burst = 0;
 static unsigned int count_color = 0;
-static unsigned int count_sr = 0;
 static unsigned int count_depth_mesh = 0;
-static unsigned int count_sr_mesh = 0;
 
 static std::string capture_name = "estatua";
 static int capture_step = 20;
@@ -40,11 +38,6 @@ int depth_max = 850;
 
 //OpenCV variables
 static Size kinect;
-
-//TODO: I dont need all of these since conversion works in-place
-static Mat depth_mat_filtered;      //filtered depth data
-static Mat depth_mat_float;         //depth data converted to float
-static Mat depth_mat_float_filtered; //filtered depth data converted to float
 
 inline double lerp(double a, double b, double f)
 {
@@ -155,25 +148,6 @@ int save_depth_burst(uint16_t *depth, unsigned int frame_count) {
 }
 
 // ---------------------------------------------------------
-// Name:		save_sr
-// ---------------------------------------------------------
-// Description:	create a file and save one sr frame
-// ---------------------------------------------------------
-
-int save_sr (Mat sr_image) {
-    std::ostringstream oss;
-    oss << capture_name << "_sr_" << count_sr*capture_step << ".png";
-    Mat clean_mat(sr_image);
-    sr_image.copyTo(clean_mat);
-    clean_mat = clean_image(clean_mat,depth_min,depth_max);
-    imwrite(oss.str(), clean_mat);
-    printf("%s saved!\n", oss.str().c_str());
-    fflush(stdout);
-    ++count_sr;
-    return 1;
-}
-
-// ---------------------------------------------------------
 // Name:		save_rgb
 // ---------------------------------------------------------
 // Description:	create a file and save one rgb frame
@@ -195,7 +169,7 @@ int save_rgb(uchar *rgb) {
 // ---------------------------------------------------------
 // Name:		save_ply
 // ---------------------------------------------------------
-// Description:	create a file and save a .ply polygonal mesh
+// Description:	create a file and save a .ply point cloud
 // with both depth and color information (now working!)
 // ---------------------------------------------------------
 int save_ply(Mat depth_mat, Mat color_mat, int count) {
@@ -208,8 +182,6 @@ int save_ply(Mat depth_mat, Mat color_mat, int count) {
         printf("\nError: while creating file %s", oss.str().c_str());
         return 0;
     }
-
-    int i, j;
 
     //bilateral filtering of the depth image
     //disabled for now because super resolution
@@ -261,8 +233,8 @@ int save_ply(Mat depth_mat, Mat color_mat, int count) {
 
     uint32_t num_vertices = 0;
     //iterate to count the number of vertices, needed for .ply header
-    for (i = 0; i < depth_mat.size().height; i++) {
-        for (j = 0; j < depth_mat.size().width; j++) {
+    for (int i = 0; i < depth_mat.size().height; i++) {
+        for (int j = 0; j < depth_mat.size().width; j++) {
             uint16_t z_in_mm = depth_mat.at<uint16_t>(i,j);
 
             if(z_in_mm != 0 && z_in_mm >= depth_min && z_in_mm <= depth_max) {
@@ -285,16 +257,14 @@ int save_ply(Mat depth_mat, Mat color_mat, int count) {
     fprintf(fp,"property uchar green\n");
     fprintf(fp,"property uchar blue\n");
     fprintf(fp,"end_header\n");
-    for (i = 0; i < depth_mat.size().height; i++) {
-        for (j = 0; j < depth_mat.size().width; j++) {
+    for (int i = 0; i < depth_mat.size().height; i++) {
+        for (int j = 0; j < depth_mat.size().width; j++) {
             uint16_t z_in_mm = depth_mat.at<uint16_t>(i,j);
             double cx = 313.68782938, cy = 259.01834898, fx_inv = 1 / 526.37013657, fy_inv = fx_inv;
 
             if(z_in_mm != 0 && z_in_mm >= depth_min && z_in_mm <= depth_max) {
                 double vx = z_in_mm * (j - cx) * fx_inv;
                 double vy = -z_in_mm * (i - cy) * fy_inv;
-                //this is going to be a bit misaligned, not that bad if the
-                //'centered' image is captured last
                 Vec3b color = color_mat.at<Vec3b>(i,j);
                 Vec3f normal = normal_mat.at<Vec3f>(i,j);
                 fprintf(fp, "%.6lf %.6lf %.6lf %.6lf %.6lf %.6lf %d %d %d\n",
