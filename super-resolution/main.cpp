@@ -145,13 +145,16 @@ int save_ply(Mat depth_mat, std::string filename, float min_value = std::numeric
 int main(int argc, char **argv)
 {
     std::string capture_name = "cap";
-    unsigned int view_angle = 0;
+    int view_angle = 0;
 
     if(argc > 1){
         capture_name = std::string(argv[1]);
-    }else if(argc > 2){
+    }
+    if(argc > 2){
         view_angle = std::stoi(std::string(argv[2]));
     }
+
+    std::cout << capture_name << " " << view_angle << std::endl;
 
     Mat lr_images[SR_SIZE];           //stored as float
     Mat lr_images_upsampled[SR_SIZE]; //stored as float

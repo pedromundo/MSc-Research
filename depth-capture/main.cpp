@@ -287,11 +287,12 @@ int main(int argc, char **argv)
 {
     if(argc > 1){
         capture_name = std::string(argv[1]);
-    }else if(argc > 2){
+    }
+    if(argc > 2){
         capture_step = std::stoi(std::string(argv[2]));
     }
 
-    std::cout << capture_name << capture_step << std::endl;
+    std::cout << capture_name << " " << capture_step << std::endl;
 
     namedWindow("RGB", CV_WINDOW_AUTOSIZE);
     namedWindow("DEPTH", CV_WINDOW_AUTOSIZE);
