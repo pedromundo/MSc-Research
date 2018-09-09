@@ -12,17 +12,14 @@
 #define CLOSE 27
 //Image capture keys
 #define DEPTH 'q'
-#define SR 'w'
-#define COLOR 'e'
-#define BURST 'b'
-#define ALL 'A'
+#define COLOR 'w'
+#define BURST 'e'
 //Mesh capture keys
 #define DEPTH_MESH 'Q'
-#define SR_MESH 'W'
+//Perform all captures
+#define ALL 'A'
 
 //Constants
-#define MESH_TYPE_REGULAR 1
-#define MESH_TYPE_SR 2
 #define SR_SIZE 16
 
 using namespace cv;
@@ -201,13 +198,10 @@ int save_rgb(uchar *rgb) {
 // Description:	create a file and save a .ply polygonal mesh
 // with both depth and color information (now working!)
 // ---------------------------------------------------------
-int save_ply(Mat depth_mat, Mat color_mat, int mesh_type, int count) {
+int save_ply(Mat depth_mat, Mat color_mat, int count) {
     std::ostringstream oss;
-    if(mesh_type == MESH_TYPE_REGULAR) {
-        oss << capture_name << "_mesh_" << count*capture_step << ".ply";
-    } else if(mesh_type == MESH_TYPE_SR) {
-        oss << capture_name << "_srmesh_" << count*capture_step << ".ply";
-    }
+    oss << capture_name << "_mesh_" << count*capture_step << ".ply";
+
     FILE *fp;
 
     if ((fp = fopen(oss.str().c_str(), "w")) == NULL) {
@@ -319,77 +313,6 @@ int save_ply(Mat depth_mat, Mat color_mat, int mesh_type, int count) {
     return 1;
 }
 
-Mat superresolve(Mat lr_images[], unsigned int image_count, int resample_factor) {
-    Mat lr_images_upsampled[image_count]; //stored as float
-    Mat alignment_matrices[image_count]; //affine transform matrices
-    Mat hr_image;
-    float global_min = std::numeric_limits<float>::max(), global_max = std::numeric_limits<float>::min();
-    //Pre-processing: get minimum and maximum values from the LR images we use
-    //this information to remove extreme values from the HR image because some
-    //non-linear noise might be added on the resampling and fusion phases
-    //(i.e. remove all values outside of the observed range)
-    for(size_t i = 0; i < image_count; ++i) {
-        lr_images[i] = clean_image(lr_images[i],depth_min,depth_max);
-        lr_images[i].convertTo(lr_images[i],CV_32FC1);
-        alignment_matrices[i] = Mat::eye(2, 3, CV_32F);
-        double local_min, local_max;
-        Mat mask = lr_images[i] > 0;
-
-        minMaxLoc(lr_images[i],&local_min,&local_max,NULL,NULL,mask);
-
-        global_min = local_min<global_min?local_min:global_min;
-        global_max = local_max>global_max?local_max:global_max;
-    }
-
-    //Registration Phase - Subpixel registration of all LR images to the first
-    #pragma omp parallel for
-    for(size_t i = 0; i < image_count; ++i) {
-        Mat template_image = lr_images[0]; //middle LR image
-        findTransformECC(template_image,lr_images[i],alignment_matrices[i], MOTION_AFFINE, \
-                         TermCriteria(TermCriteria::COUNT+TermCriteria::EPS, 200, 1E-12));
-        std::cout << "Alignment " << i << "->" << 0 << " = " << alignment_matrices[i] << std::endl;
-    }
-
-    //Upsample + Warp Phase - Upsample all LR images and use registration information
-    //technically the resize operation should happen before the warpAffine, but this
-    //is not working in this version of the program, whilst it worked on an older
-    //version, ignoring this for now since the results are good
-    for(size_t i = 0; i < image_count; ++i) {
-        //Warp - Simplified to rigid transform because we aim to have as little
-        //translation and rotation between the LR images as possible while still
-        //modifying the intrinsics enough to have complementary data
-        if(i > 0) {
-            warpAffine(lr_images[i],lr_images[i],alignment_matrices[i], lr_images[i].size(),CV_WARP_INVERSE_MAP);
-        }
-
-        //Upsample - can use pyramids or perform a simple scale operation
-        //results were exactly the same, still gotta find out why
-        cv::resize(lr_images[i],lr_images_upsampled[i],lr_images[i].size()*resample_factor,0,0,INTER_NEAREST);
-    }
-
-    //Reconstruction Phase - For now, simply averaging the images, this reduces the
-    //impact of the additive noise from the kinect sensor on the HR image (Richardt).
-    //Nonlinear noise generated during the other phases will be removed using the
-    //previously established limits of the depth info; i.e., we can not generate or
-    //reconstruct information outside of the observed volume. This implementation
-    //performs poorly in case the images are not very well aligned. In fact, even
-    //changing the ECC epsilon from 1E-12 to 1E-06 adversely affected the results
-    hr_image = Mat(lr_images_upsampled[0].size(),CV_32FC1);
-    for(size_t i = 0; i < image_count; ++i) {
-        addWeighted(hr_image,1.0,lr_images_upsampled[i],(1.0/image_count),0,hr_image);
-    }
-
-    //Filter out samples outside of the observed volume (i.e. non-linear noise and
-    //image processing artifacts)
-
-    //Downsample the HR image back to 640x480 to keep it valid within the coordinate
-    //system of the Microsoft Kinect sensor
-    cv::resize(hr_image,hr_image,hr_image.size()/resample_factor,0,0,INTER_NEAREST);
-    hr_image.convertTo(hr_image,CV_16UC1);
-    hr_image = clean_image(hr_image,(int)global_min,(int)global_max);
-    return hr_image;
-}
-
 int main(int argc, char **argv)
 {
     if(argc > 1){
@@ -459,21 +382,6 @@ int main(int argc, char **argv)
                 freenect_sync_get_video((void**)(&data), &timestamp, 0, FREENECT_VIDEO_RGB);
                 save_rgb(data);
             }
-            if (key == SR) {
-                Mat sr_frames[SR_SIZE];
-                for(int i = 0; i<SR_SIZE; ++i) {
-                    uint32_t timestamp_depth;
-                    uint16_t *depth_data;
-                    freenect_sync_set_tilt_degs(i-3,0);
-                    sleep(1);
-                    freenect_sync_get_depth((void**)(&depth_data), &timestamp_depth, 0, FREENECT_DEPTH_REGISTERED);
-                    std::cout << timestamp_depth << std::endl;
-                    Mat(kinect,CV_16UC1,depth_data).copyTo(sr_frames[i]);
-                }
-                Mat sr_image = superresolve(sr_frames,SR_SIZE,4);
-                save_sr(sr_image);
-                freenect_sync_set_tilt_degs(0,0);
-            }
             if (key == DEPTH_MESH) {
                 uint32_t timestamp_depth;
                 uint16_t *depth_data;
@@ -481,26 +389,8 @@ int main(int argc, char **argv)
                 uint32_t timestamp_color;
                 unsigned char *color_data;
                 freenect_sync_get_video((void**)(&color_data), &timestamp_color, 0, FREENECT_VIDEO_RGB);
-                save_ply(Mat(kinect,CV_16UC1,depth_data),Mat(kinect,CV_8UC3,color_data),MESH_TYPE_REGULAR,count_depth_mesh);
+                save_ply(Mat(kinect,CV_16UC1,depth_data),Mat(kinect,CV_8UC3,color_data),count_depth_mesh);
                 ++count_depth_mesh;
-            }
-            if (key == SR_MESH) {
-                uint32_t timestamp_color;
-                unsigned char *color_data;
-                freenect_sync_get_video((void**)(&color_data), &timestamp_color, 0, FREENECT_VIDEO_RGB);
-                Mat sr_frames[SR_SIZE];
-                for(int i = 0; i<SR_SIZE; ++i) {
-                    uint32_t timestamp_depth;
-                    uint16_t *depth_data;
-                    freenect_sync_set_tilt_degs(i-3,0);
-                    sleep(1);
-                    freenect_sync_get_depth((void**)(&depth_data), &timestamp_depth, 0, FREENECT_DEPTH_REGISTERED);
-                    std::cout << timestamp_depth << std::endl;
-                    Mat(kinect,CV_16UC1,depth_data).copyTo(sr_frames[i]);
-                }
-                Mat sr_image = superresolve(sr_frames,SR_SIZE,4);
-                save_ply(sr_image,Mat(kinect,CV_8UC3,color_data),MESH_TYPE_SR,count_sr_mesh);
-                ++count_sr_mesh;
             }
             if (key == ALL) {
                 //depth
@@ -515,43 +405,22 @@ int main(int argc, char **argv)
                 freenect_sync_get_video((void**)(&data), &timestamp, 0, FREENECT_VIDEO_RGB);
                 save_rgb(data);
 
-                //depth sr
-                Mat sr_frames[SR_SIZE];
-                for(int i = 0; i<SR_SIZE; ++i) {
-                    uint32_t timestamp_depth;
-                    uint16_t *depth_data;
-                    freenect_sync_set_tilt_degs(i-3,0);
-                    sleep(1);
-                    freenect_sync_get_depth((void**)(&depth_data), &timestamp_depth, 0, FREENECT_DEPTH_REGISTERED);
-                    std::cout << timestamp_depth << std::endl;
-                    Mat(kinect,CV_16UC1,depth_data).copyTo(sr_frames[i]);
-                }
-                Mat sr_image = superresolve(sr_frames,SR_SIZE,4);
-                save_sr(sr_image);
-                freenect_sync_set_tilt_degs(0,0);
-
                 //depth mesh
                 freenect_sync_get_depth((void**)(&depth_data), &timestamp_depth, 0, FREENECT_DEPTH_REGISTERED);
                 uint32_t timestamp_color;
                 unsigned char *color_data;
                 freenect_sync_get_video((void**)(&color_data), &timestamp_color, 0, FREENECT_VIDEO_RGB);
-                save_ply(Mat(kinect,CV_16UC1,depth_data),Mat(kinect,CV_8UC3,color_data),MESH_TYPE_REGULAR,count_depth_mesh);
+                save_ply(Mat(kinect,CV_16UC1,depth_data),Mat(kinect,CV_8UC3,color_data),count_depth_mesh);
                 ++count_depth_mesh;
 
-                //depth_sr_mesh
-                freenect_sync_get_video((void**)(&color_data), &timestamp_color, 0, FREENECT_VIDEO_RGB);
-                for(int i = 0; i<SR_SIZE; ++i) {
-                    uint32_t timestamp_depth;
-                    uint16_t *depth_data;
-                    freenect_sync_set_tilt_degs(i-3,0);
-                    sleep(1);
-                    freenect_sync_get_depth((void**)(&depth_data), &timestamp_depth, 0, FREENECT_DEPTH_REGISTERED);
-                    std::cout << timestamp_depth << std::endl;
-                    Mat(kinect,CV_16UC1,depth_data).copyTo(sr_frames[i]);
+                //burst image
+                uint32_t timestamp_burst;
+                uint16_t *burst_data;
+                for(unsigned int i = 0; i < SR_SIZE; ++i){
+                    freenect_sync_get_depth((void**)(&burst_data), &timestamp_burst, 0, FREENECT_DEPTH_REGISTERED);
+                    save_depth_burst(burst_data, i);
                 }
-                sr_image = superresolve(sr_frames,SR_SIZE,4);
-                save_ply(sr_image,Mat(kinect,CV_8UC3,color_data),MESH_TYPE_SR,count_sr_mesh);
-                ++count_sr_mesh;
+                ++count_burst;
             }
         }
     }
