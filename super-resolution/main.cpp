@@ -5,7 +5,7 @@
 #include <limits>
 #include <numeric>
 
-#define NUM_IMAGES 16
+#define SR_SIZE 16
 #define RESAMPLE_FACTOR 4
 
 using namespace cv;
@@ -35,7 +35,7 @@ int save_ply(Mat depth_mat, std::string filename, float min_value = std::numeric
 
     if ((fp = fopen(filename.c_str(), "w")) == NULL)
     {
-        printf("\nError: while creating file %s", filename);
+        printf("\nError: while creating file %s", filename.c_str());
         return 0;
     }
 
@@ -144,9 +144,18 @@ int save_ply(Mat depth_mat, std::string filename, float min_value = std::numeric
 
 int main(int argc, char **argv)
 {
-    Mat lr_images[NUM_IMAGES];           //stored as float
-    Mat lr_images_upsampled[NUM_IMAGES]; //stored as float
-    Mat alignment_matrices[NUM_IMAGES];  //affine transform matrices
+    std::string capture_name = "cap";
+    unsigned int view_angle = 0;
+
+    if(argc > 1){
+        capture_name = std::string(argv[1]);
+    }else if(argc > 2){
+        view_angle = std::stoi(std::string(argv[2]));
+    }
+
+    Mat lr_images[SR_SIZE];           //stored as float
+    Mat lr_images_upsampled[SR_SIZE]; //stored as float
+    Mat alignment_matrices[SR_SIZE];  //affine transform matrices
     Mat hr_image;
 
     float global_min = std::numeric_limits<float>::max(), global_max = std::numeric_limits<float>::min();
@@ -154,12 +163,13 @@ int main(int argc, char **argv)
     //Pre-processing Phase - get minimum and maximum values from the LR images
     //we use this information to remove extreme values from the HR image because
     //some non-linear noise might be added on the resampling and fusion phases
-    for (size_t i = 0; i < NUM_IMAGES; ++i)
+    for (size_t i = 0; i < SR_SIZE; ++i)
     {
         std::ostringstream oss_in;
-        oss_in << "cap_depth_" << i << ".png";
+        oss_in << capture_name << "_burst_" << view_angle << "_" << i << ".png";
         lr_images[i] = imread(oss_in.str(), CV_LOAD_IMAGE_ANYDEPTH);
         lr_images[i].convertTo(lr_images[i], CV_32FC1);
+        alignment_matrices[i] = Mat::eye(2, 3, CV_32F);
 
         double local_min, local_max;
         Mat mask = lr_images[i] > 0;
@@ -172,9 +182,9 @@ int main(int argc, char **argv)
 
     printf("Observed Global Min: %.0lf\nObserved Global Max: %.0lf\n", global_min, global_max);
 
-//Registration Phase - Subpixel registration of all LR images to the first
-#pragma omp parallel for
-    for (size_t i = 0; i < NUM_IMAGES; ++i)
+    //Registration Phase - Subpixel registration of all LR images to the first
+    #pragma omp parallel for
+    for (size_t i = 0; i < SR_SIZE; ++i)
     {
         Mat template_image = lr_images[0]; //first LR image
         findTransformECC(template_image, lr_images[i], alignment_matrices[i], MOTION_AFFINE,
@@ -186,7 +196,7 @@ int main(int argc, char **argv)
     //technically the resize operation should happen before the warpAffine, but this
     //is not working in this version of the program, whilst it worked on an older
     //version, ignoring this for now since the results are good
-    for (size_t i = 0; i < NUM_IMAGES; ++i)
+    for (size_t i = 0; i < SR_SIZE; ++i)
     {
         //Warp - Simplified to rigid transform because we aim to have as little
         //translation and rotation between the LR images as possible while still
@@ -209,17 +219,18 @@ int main(int argc, char **argv)
     //performs poorly in case the images are not very well aligned. In fact, even
     //changing the ECC epsilon from 1E-12 to 1E-06 adversely affected the results
     /*hr_image = Mat(lr_images_upsampled[0].size(),CV_32FC1);
-    for(size_t i = 0; i < NUM_IMAGES; ++i) {
-        addWeighted(hr_image,1.0,lr_images_upsampled[i],(1.0/NUM_IMAGES),0,hr_image);
+    for(size_t i = 0; i < SR_SIZE; ++i) {
+        addWeighted(hr_image,1.0,lr_images_upsampled[i],(1.0/SR_SIZE),0,hr_image);
     }*/
 
+    //New approach -- zero-elimination (ZE) averaging
     hr_image = Mat(lr_images_upsampled[0].size(), CV_32FC1);
     for (int i = 0; i < hr_image.size().height; i++)
     {
         for (int j = 0; j < hr_image.size().width; j++)
         {
             std::vector<float> candidate_pixels;
-            for (int k = 0; k < NUM_IMAGES; ++k)
+            for (int k = 0; k < SR_SIZE; ++k)
             {
                 float depth = lr_images_upsampled[k].at<float>(i, j);
                 if (depth > 0)
@@ -237,5 +248,10 @@ int main(int argc, char **argv)
     //no apparent downsides
     cv::resize(hr_image, hr_image, hr_image.size() / RESAMPLE_FACTOR, 0, 0, INTER_LANCZOS4);
     hr_image.convertTo(hr_image, CV_16UC1);
-    save_ply(hr_image, "cap_depth_hr.ply", global_min, global_max);
+    std::ostringstream oss_out;
+    oss_out << capture_name << "_srdepth_" << view_angle << ".png";
+    imwrite(oss_out.str(),hr_image);
+    oss_out.str(std::string());
+    oss_out << capture_name << "_srmesh_" << view_angle << ".ply";
+    save_ply(hr_image, oss_out.str(), global_min, global_max);
 }
