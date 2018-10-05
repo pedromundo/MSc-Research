@@ -4,7 +4,9 @@
 #include <pcl/point_cloud.h>
 #include <pcl/common/transforms.h>
 #include <pcl/visualization/pcl_visualizer.h>
-#include <pcl/registration/icp_nl.h>
+#include <pcl/registration/icp.h>
+#include <pcl/filters/voxel_grid.h>
+#include <pcl/filters/statistical_outlier_removal.h>
 
 using namespace std;
 
@@ -30,12 +32,16 @@ int main(int argc, char **argv)
         }
     }
 
-    //Translation to origin and rough alignment
+    //Translation to origin and alignment according to our rotation parameters
     for (size_t i = 0; i < NUM_CAPTURES; ++i)
     {
+        //Cleaning
+        std::vector<int> indices;
+        pcl::removeNaNFromPointCloud(*point_clouds[i], *point_clouds[i], indices);
         //Translating to center
         Eigen::Affine3f transform = Eigen::Affine3f::Identity();
-        transform.translation() << 0.0, 0.0, 650.0; //650 must be the distance from kinec to the center of the table
+        //650 must be the distance from kinec to the center of the table
+        transform.translation() << 0.0, 0.0, 650.0;
         pcl::transformPointCloud(*point_clouds[i], *point_clouds[i], transform);
         //Rotate around center
         transform = Eigen::Affine3f::Identity();
@@ -44,25 +50,24 @@ int main(int argc, char **argv)
         pcl::transformPointCloud(*point_clouds[i], *point_clouds[i], transform);
     }
 
-    //Fine alignment via ICP/ICP-NL -- both make it worse
-    //Simply rotating according to our calibration works
-    //considerably better
+    //Fine alignment via ICP/ICP-NL -- both make it worse, simply rotating according
+    //to our calibration works considerably better
     pcl::copyPointCloud(*point_clouds[0],*accumulated); //copy first cloud
     for (size_t i = 1; i < NUM_CAPTURES; ++i)
     {
         PointCloudWithNormals aligned(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
         //ICP Alignment and Registration
-        pcl::IterativeClosestPoint<pcl::PointXYZRGBNormal, pcl::PointXYZRGBNormal> icp;
-        icp.setInputSource(point_clouds[i]);
-        icp.setInputTarget(accumulated);
-        icp.setMaximumIterations(200);
-        icp.setTransformationEpsilon(1e-9);
-        icp.align(*aligned);
-        cout << (i*CAPTURE_STEP) << " has converged -- "<< " score: " << icp.getFitnessScore() << endl;
-        cout << icp.getFinalTransformation() << endl;
-        *accumulated = *accumulated + *aligned;
+        // pcl::IterativeClosestPoint<pcl::PointXYZRGBNormal, pcl::PointXYZRGBNormal> icp;
+        // icp.setInputSource(point_clouds[i]);
+        // icp.setInputTarget(accumulated);
+        // icp.setEuclideanFitnessEpsilon(1);
+        // /*icp.setMaximumIterations(200);
+        // icp.setTransformationEpsilon(1e-9);*/
+        // icp.align(*aligned);
+        // cout << (i*CAPTURE_STEP) << " has converged -- "<< " score: " << icp.getFitnessScore() << endl;
+        // cout << icp.getFinalTransformation() << endl;
+        // *accumulated = *accumulated + *aligned;
         *accumulated = *accumulated + *point_clouds[i]; //for tests without icp
-
     }
 
     //Visualization
