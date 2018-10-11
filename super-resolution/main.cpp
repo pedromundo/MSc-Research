@@ -5,8 +5,8 @@
 #include <limits>
 #include <numeric>
 
-#define SR_SIZE 16
-#define RESAMPLE_FACTOR 4
+#define NUM_IMAGES 16
+#define RESAMPLE_FACTOR 8
 
 using namespace cv;
 
@@ -19,8 +19,9 @@ float mean(std::vector<float> &v)
     return mean;
 }
 
-//From https://stackoverflow.com/questions/1719070/1719155#1719155
+//From https://stackoverflow.com/questions/1719070/1719155
 //this will be used to test median fusion instead of average
+//Tested -- it sucked
 float median(std::vector<float> &v)
 {
     size_t n = v.size() / 2;
@@ -28,11 +29,15 @@ float median(std::vector<float> &v)
     return v[n];
 }
 
+float lerp(float v0, float v1, float t) {
+  return (1 - t) * v0 + t * v1;
+}
+
 int save_ply(Mat depth_mat, std::string filename, float min_value = std::numeric_limits<float>::min(),
              float max_value = std::numeric_limits<float>::max())
 {
     FILE *fp;
-
+    Mat color_image = imread("high_res_texture_large.jpg", CV_LOAD_IMAGE_COLOR);
     if ((fp = fopen(filename.c_str(), "w")) == NULL)
     {
         printf("\nError: while creating file %s", filename.c_str());
@@ -119,16 +124,27 @@ int save_ply(Mat depth_mat, std::string filename, float min_value = std::numeric
     {
         for (j = 0; j < depth_mat.size().width; j++)
         {
+	    Vec3b color = color_image.at<Vec3b>(i,j);
             uint16_t z_in_mm = depth_mat.at<uint16_t>(i, j);
+            //updated intrinsics from https://www.mrpt.org/tutorials/programming/miscellaneous/kinect-calibration/
             double fx = 572.882768, fy = 542.739980, cx = 314.649173, cy = 240.160459;
+            fx *= RESAMPLE_FACTOR;
+            fy *= RESAMPLE_FACTOR;
+            cx *= RESAMPLE_FACTOR;
+            cy *= RESAMPLE_FACTOR;
+
             if (z_in_mm != 0 && z_in_mm >= min_value && z_in_mm <= max_value)
             {
                 double vx = z_in_mm * (j - cx) * (1/fx);
                 double vy = -z_in_mm * (i - cy) * (1/fy);
+                /*auto orig_range = max_value - min_value;
+                auto orig_offset = z_in_mm - min_value;
+                auto orig_factor = orig_offset/orig_range;
+                z_in_mm = lerp(min_value,max_value*sqrt(sqrt(RESAMPLE_FACTOR)),orig_factor);*/
                 Vec3f normal = normal_mat.at<Vec3f>(i, j);
                 fprintf(fp, "%.6lf %.6lf %.6lf %.6lf %.6lf %.6lf %d %d %d\n",
                         (double)vx, (double)vy, (double)-z_in_mm, (double)normal[0],
-                        (double)normal[1], (double)normal[2], 128, 128, 128);
+                        (double)normal[1], (double)normal[2], color[0], color[1], color[2]);
             }
         }
     }
@@ -144,21 +160,9 @@ int save_ply(Mat depth_mat, std::string filename, float min_value = std::numeric
 
 int main(int argc, char **argv)
 {
-    std::string capture_name = "cap";
-    int view_angle = 0;
-
-    if(argc > 1){
-        capture_name = std::string(argv[1]);
-    }
-    if(argc > 2){
-        view_angle = std::stoi(std::string(argv[2]));
-    }
-
-    std::cout << capture_name << " " << view_angle << std::endl;
-
-    Mat lr_images[SR_SIZE];           //stored as float
-    Mat lr_images_upsampled[SR_SIZE]; //stored as float
-    Mat alignment_matrices[SR_SIZE];  //affine transform matrices
+    Mat lr_images[NUM_IMAGES];           //stored as float
+    Mat lr_images_upsampled[NUM_IMAGES]; //stored as float
+    Mat alignment_matrices[NUM_IMAGES];  //affine transform matrices
     Mat hr_image;
 
     float global_min = std::numeric_limits<float>::max(), global_max = std::numeric_limits<float>::min();
@@ -166,13 +170,12 @@ int main(int argc, char **argv)
     //Pre-processing Phase - get minimum and maximum values from the LR images
     //we use this information to remove extreme values from the HR image because
     //some non-linear noise might be added on the resampling and fusion phases
-    for (size_t i = 0; i < SR_SIZE; ++i)
+    for (size_t i = 0; i < NUM_IMAGES; ++i)
     {
         std::ostringstream oss_in;
-        oss_in << capture_name << "_burst_" << view_angle << "_" << i << ".png";
+        oss_in << "cap_depth_" << i << ".png";
         lr_images[i] = imread(oss_in.str(), CV_LOAD_IMAGE_ANYDEPTH);
         lr_images[i].convertTo(lr_images[i], CV_32FC1);
-        alignment_matrices[i] = Mat::eye(2, 3, CV_32F);
 
         double local_min, local_max;
         Mat mask = lr_images[i] > 0;
@@ -185,9 +188,9 @@ int main(int argc, char **argv)
 
     printf("Observed Global Min: %.0lf\nObserved Global Max: %.0lf\n", global_min, global_max);
 
-    //Registration Phase - Subpixel registration of all LR images to the first
-    #pragma omp parallel for
-    for (size_t i = 0; i < SR_SIZE; ++i)
+//Registration Phase - Subpixel registration of all LR images to the first
+#pragma omp parallel for
+    for (size_t i = 0; i < NUM_IMAGES; ++i)
     {
         Mat template_image = lr_images[0]; //first LR image
         findTransformECC(template_image, lr_images[i], alignment_matrices[i], MOTION_AFFINE,
@@ -199,7 +202,7 @@ int main(int argc, char **argv)
     //technically the resize operation should happen before the warpAffine, but this
     //is not working in this version of the program, whilst it worked on an older
     //version, ignoring this for now since the results are good
-    for (size_t i = 0; i < SR_SIZE; ++i)
+    for (size_t i = 0; i < NUM_IMAGES; ++i)
     {
         //Warp - Simplified to rigid transform because we aim to have as little
         //translation and rotation between the LR images as possible while still
@@ -222,18 +225,17 @@ int main(int argc, char **argv)
     //performs poorly in case the images are not very well aligned. In fact, even
     //changing the ECC epsilon from 1E-12 to 1E-06 adversely affected the results
     /*hr_image = Mat(lr_images_upsampled[0].size(),CV_32FC1);
-    for(size_t i = 0; i < SR_SIZE; ++i) {
-        addWeighted(hr_image,1.0,lr_images_upsampled[i],(1.0/SR_SIZE),0,hr_image);
+    for(size_t i = 0; i < NUM_IMAGES; ++i) {
+        addWeighted(hr_image,1.0,lr_images_upsampled[i],(1.0/NUM_IMAGES),0,hr_image);
     }*/
 
-    //New approach -- zero-elimination (ZE) averaging
     hr_image = Mat(lr_images_upsampled[0].size(), CV_32FC1);
     for (int i = 0; i < hr_image.size().height; i++)
     {
         for (int j = 0; j < hr_image.size().width; j++)
         {
             std::vector<float> candidate_pixels;
-            for (int k = 0; k < SR_SIZE; ++k)
+            for (int k = 0; k < NUM_IMAGES; ++k)
             {
                 float depth = lr_images_upsampled[k].at<float>(i, j);
                 if (depth > 0)
@@ -247,14 +249,8 @@ int main(int argc, char **argv)
     }
 
     //Downsample the HR image back to 640x480 to keep it valid within the coordinate
-    //system of the Microsoft Kinect sensor - lanczos removes some artifacts with
-    //no apparent downsides
-    cv::resize(hr_image, hr_image, hr_image.size() / RESAMPLE_FACTOR, 0, 0, INTER_LANCZOS4);
+    //system of the Microsoft Kinect sensor
+    //cv::resize(hr_image, hr_image, hr_image.size() / RESAMPLE_FACTOR, 0, 0, INTER_NEAREST);
     hr_image.convertTo(hr_image, CV_16UC1);
-    std::ostringstream oss_out;
-    oss_out << capture_name << "_srdepth_" << view_angle << ".png";
-    imwrite(oss_out.str(),hr_image);
-    oss_out.str(std::string());
-    oss_out << capture_name << "_srmesh_" << view_angle << ".ply";
-    save_ply(hr_image, oss_out.str(), global_min, global_max);
+    save_ply(hr_image, "cap_depth_hr.ply", global_min, global_max);
 }
