@@ -1,2 +1,4 @@
 *.directory
 depth-capture/depthcapturer
+super-resolution/customsr
+rotate-align/rotate
