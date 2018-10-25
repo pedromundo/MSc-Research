@@ -35,6 +35,10 @@ static int capture_step = 20;
 //Depth thresholds in mm
 int depth_min = 0;
 int depth_max = 850;
+int left_plane = 0;
+int right_plane = 640;
+int top_plane = 0;
+int bottom_plane = 480;
 
 //OpenCV variables
 static Size kinect;
@@ -58,7 +62,8 @@ void show_depth (uint16_t *depth) {
     for ( i = 0; i < kinect.height; i++)
         for ( j = 0; j < kinect.width; j++) {
             uint16_t depth_in_mm = depth_mat.at<uint16_t>(i,j);
-            if (depth_in_mm != 0 && depth_in_mm >= depth_min && depth_in_mm <= depth_max) {
+            if (depth_in_mm != 0 && depth_in_mm >= depth_min && depth_in_mm <= depth_max && \
+                i >= top_plane && i <= bottom_plane && j >= left_plane && j <= right_plane) {
                 uint16_t color = (uint16_t) lerp(255.0,32.0,(double) depth_in_mm/FREENECT_DEPTH_MM_MAX_VALUE);
                 Vec3b &pixel_color = depth_mat_tmp.at<Vec3b>(i,j);
                 pixel_color[0] = color;
@@ -95,7 +100,7 @@ void show_rgb (uchar *rgb) {
 // between versions and operatins systems
 // ---------------------------------------------------------
 
-Mat clean_image(Mat input_image, int min_value, int max_value){
+Mat clean_image(Mat input_image, int near, int far, int left, int right, int top, int bottom){
     Mat output_image;
     input_image.copyTo(output_image);
     for(int i = 0; i < output_image.size().height; ++i)
@@ -103,7 +108,7 @@ Mat clean_image(Mat input_image, int min_value, int max_value){
         for(int j = 0; j < output_image.size().width; ++j)
         {
             uint16_t &pixel = output_image.at<uint16_t>(i, j);
-            if(pixel > max_value || pixel < min_value){
+            if(pixel > far || pixel < near || i < top || i > bottom || j < left || j > right){
                 pixel = 0;
             }
         }
@@ -121,7 +126,7 @@ int save_depth (uint16_t *depth) {
     Mat depth_mat = Mat(kinect,CV_16UC1, depth);
     std::ostringstream oss;
     oss << capture_name << "_depth_" << count_depth*capture_step << ".png";
-    depth_mat = clean_image(depth_mat,depth_min,depth_max);
+    depth_mat = clean_image(depth_mat,depth_min,depth_max,left_plane,right_plane,top_plane,bottom_plane);
     imwrite(oss.str(), depth_mat);
     printf("%s saved!\n", oss.str().c_str());
     fflush(stdout);
@@ -140,7 +145,7 @@ int save_depth_burst(uint16_t *depth, unsigned int frame_count) {
     Mat depth_mat = Mat(kinect,CV_16UC1, depth);
     std::ostringstream oss;
     oss << capture_name << "_burst_" << count_burst*capture_step << "_" << frame_count << ".png";
-    depth_mat = clean_image(depth_mat,depth_min,depth_max);
+    depth_mat = clean_image(depth_mat,depth_min,depth_max,left_plane,right_plane,top_plane,bottom_plane);
     imwrite(oss.str(), depth_mat);
     printf("%s saved!\n", oss.str().c_str());
     fflush(stdout);
@@ -237,7 +242,8 @@ int save_ply(Mat depth_mat, Mat color_mat, int count) {
         for (int j = 0; j < depth_mat.size().width; j++) {
             uint16_t z_in_mm = depth_mat.at<uint16_t>(i,j);
 
-            if(z_in_mm != 0 && z_in_mm >= depth_min && z_in_mm <= depth_max) {
+            if(z_in_mm != 0 && z_in_mm >= depth_min && z_in_mm <= depth_max && \
+               i >= top_plane && i <= bottom_plane && j >= left_plane && j <= right_plane) {
                 ++num_vertices;
             }
         }
@@ -260,11 +266,11 @@ int save_ply(Mat depth_mat, Mat color_mat, int count) {
     for (int i = 0; i < depth_mat.size().height; i++) {
         for (int j = 0; j < depth_mat.size().width; j++) {
             uint16_t z_in_mm = depth_mat.at<uint16_t>(i,j);
-            double cx = 313.68782938, cy = 259.01834898, fx_inv = 1 / 526.37013657, fy_inv = fx_inv;
-
-            if(z_in_mm != 0 && z_in_mm >= depth_min && z_in_mm <= depth_max) {
-                double vx = z_in_mm * (j - cx) * fx_inv;
-                double vy = -z_in_mm * (i - cy) * fy_inv;
+            double fx = 572.882768, fy = 542.739980, cx = 314.649173, cy = 240.160459;
+            if(z_in_mm != 0 && z_in_mm >= depth_min && z_in_mm <= depth_max && \
+                i >= top_plane && i <= bottom_plane && j >= left_plane && j <= right_plane) {
+                double vx = z_in_mm * (j - cx) * (1/fx);
+                double vy = -z_in_mm * (i - cy) * (1/fy);
                 Vec3b color = color_mat.at<Vec3b>(i,j);
                 Vec3f normal = normal_mat.at<Vec3f>(i,j);
                 fprintf(fp, "%.6lf %.6lf %.6lf %.6lf %.6lf %.6lf %d %d %d\n",
@@ -297,12 +303,16 @@ int main(int argc, char **argv)
     namedWindow("RGB", CV_WINDOW_AUTOSIZE);
     namedWindow("DEPTH", CV_WINDOW_AUTOSIZE);
 
-    //Trackbar
-    createTrackbar("Min Depth.", "DEPTH", &depth_min, FREENECT_DEPTH_MM_MAX_VALUE, NULL);
-    createTrackbar("Max Depth.", "DEPTH", &depth_max, FREENECT_DEPTH_MM_MAX_VALUE, NULL);
-
     kinect.width = 640;
     kinect.height = 480;
+
+    //Trackbar
+    createTrackbar("Near Plane (mm)", "DEPTH", &depth_min, 4000, NULL);
+    createTrackbar("Far Plane (mm)", "DEPTH", &depth_max, 4000, NULL);
+    createTrackbar("Left Plane (px)", "DEPTH", &left_plane, kinect.width-1, NULL);
+    createTrackbar("Right Plane (px)", "DEPTH", &right_plane, kinect.width-1, NULL);
+    createTrackbar("Top Plane (px)", "DEPTH", &top_plane, kinect.height-1, NULL);
+    createTrackbar("Bottom Plane (px)", "DEPTH", &bottom_plane, kinect.height-1, NULL);
 
     int key = 0;
 
