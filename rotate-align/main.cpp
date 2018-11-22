@@ -26,7 +26,7 @@ int main(int argc, char **argv)
     for (size_t i = 0; i < NUM_CAPTURES; ++i)
     {
         point_clouds.push_back(pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr(new pcl::PointCloud<pcl::PointXYZRGBNormal>));
-        if (pcl::io::loadPLYFile<pcl::PointXYZRGBNormal>(string("/home/pedroraimundo/Desktop/tartaruga_metodo_sr/tartaruga_srmesh_") += (to_string(i * CAPTURE_STEP)) += ".ply", *point_clouds[i]) != -1)
+        if (pcl::io::loadPLYFile<pcl::PointXYZRGBNormal>(string("./tartaruga_srmesh_") += (to_string(i * CAPTURE_STEP)) += ".ply", *point_clouds[i]) != -1)
         {
             cout << (string("MESH ") += (to_string(i * CAPTURE_STEP)) += " LOADED ALRIGHT!") << endl;
         }

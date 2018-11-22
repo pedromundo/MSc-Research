@@ -24,7 +24,7 @@ GLuint lightDiffusePower = 100, lightSpecularPower = 10, lightDistance = 10;
 //# of vertices and tris
 GLulong nvertices, ntriangles;
 //Texture properties
-GLint wTex, hTex, cTex, wNor, hNor, cNor, wHei, hHei, cHei;
+GLint wTex, hTex, cTex, wNor, hNor, cNor, wBak, hBak, cBak;
 //Handlers for the VBOs, FBOs, texArrays shader programs
 GLuint VertexArrayIDs[1], vertexbuffers[2], textureArrays[3], basicShader;
 GLfloat fov = 60.0f;
@@ -32,8 +32,8 @@ std::size_t vertexSize = (3 * sizeof(GLfloat) + 3 * sizeof(GLfloat) + 2 * sizeof
 //MVP Matrices
 glm::mat4 Projection, View, Model;
 glm::vec3 eyePos = glm::vec3(1.0, 1.0, 1.0);
+glm::vec3 lightPos = glm::vec3(1.0, 1.0, 1.0);
 
-//Using std::vector because no one wants to work with arrays in 2016
 std::vector<Vertex> *vertices = new std::vector<Vertex>();
 std::vector<Face> *faces = new std::vector<Face>();
 
@@ -111,7 +111,7 @@ GLvoid shaderPlumbing(){
 	printOpenGLError();
 	//Light position
 	GLuint lightID = glGetUniformLocation(basicShader, "lightPos");
-	glUniform3f(lightID, eyePos.x, eyePos.y, eyePos.z);
+	glUniform3f(lightID, lightPos.x, lightPos.y, lightPos.z);
 	printOpenGLError();
 
 	glBindVertexArray(VertexArrayIDs[0]);
@@ -177,17 +177,18 @@ GLvoid keyboard(GLubyte key, GLint x, GLint y)
 	case 'R':
 		g_bRotateModel = !g_bRotateModel;
 		break;
-	case 'a':
-	case 'A':
+	case '=':
+	case '+':
 		fov -= 2.0f;
 		Projection = glm::perspective(glm::radians(fov), (GLfloat)wWidth / (GLfloat)wHeight, 0.1f, 100.0f);
 		break;
-	case 'z':
+	case '-':
+	case '_':
 		fov += 2.0f;
 		Projection = glm::perspective(glm::radians(fov), (GLfloat)wWidth / (GLfloat)wHeight, 0.1f, 100.0f);
 		break;
-	case 'w':
-	case 'W':
+	case 'l':
+	case 'L':
 		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 		break;
 	case 'p':
@@ -238,8 +239,7 @@ inline GLfloat interpolate(const GLfloat a, const GLfloat b, const GLfloat coeff
 	return a + coefficient * (b - a);
 }
 
-Vertex tempPoint = { 0.0f, 0.0f, 0.0f };
-
+Vertex tempPoint;
 GLint vertex_cb(p_ply_argument argument) {
 	long currItem;
 	ply_get_argument_user_data(argument, NULL, &currItem);
@@ -261,6 +261,10 @@ GLint vertex_cb(p_ply_argument argument) {
 		break;
 	case 5:
 		tempPoint.normal.nz = ply_get_argument_value(argument);
+
+		tempPoint.uv.u = tempPoint.x+0.51;
+		tempPoint.uv.v = -tempPoint.y+0.53;
+
 		vertices->push_back(tempPoint);
 		break;
 	default:
@@ -285,30 +289,6 @@ GLint face_cb(p_ply_argument argument) {
 		case 2:
 			tempFace.f3 = ply_get_argument_value(argument);
 			faces->push_back(tempFace);
-			break;
-		default:
-			break;
-		}
-	}
-	else if (length == 6){
-		switch (value_index) {
-		case 0:
-			vertices->at(tempFace.f1).uv.u = ply_get_argument_value(argument);
-			break;
-		case 1:
-			vertices->at(tempFace.f1).uv.v = ply_get_argument_value(argument);
-			break;
-		case 2:
-			vertices->at(tempFace.f2).uv.u = ply_get_argument_value(argument);
-			break;
-		case 3:
-			vertices->at(tempFace.f2).uv.v = ply_get_argument_value(argument);
-			break;
-		case 4:
-			vertices->at(tempFace.f3).uv.u = ply_get_argument_value(argument);
-			break;
-		case 5:
-			vertices->at(tempFace.f3).uv.v = ply_get_argument_value(argument);
 			break;
 		default:
 			break;
@@ -346,7 +326,7 @@ GLvoid initTextures(){
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
-	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, wTex, hTex, 0, GL_RGB, GL_UNSIGNED_BYTE, texture_back);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, wBak, hBak, 0, GL_RGB, GL_UNSIGNED_BYTE, texture_back);
 	glUniform1i(glGetUniformLocation(basicShader, "tex_back"), 2);
 
 }
@@ -367,13 +347,13 @@ GLint main(GLint argc, GLchar **argv)
 	Model = glm::mat4(1.0f);
 	View = glm::lookAt(
 		eyePos,
-		glm::vec3(0, 0.5, 0),
+		glm::vec3(0, 0, 0),
 		glm::vec3(0, 1, 0)
 		);
 	Projection = glm::perspective(glm::radians(fov), (GLfloat)wWidth / (GLfloat)wHeight, 0.1f, 100.0f);
 
 	//Read model from .ply file
-	p_ply ply = ply_open("bag.ply", NULL, 0, NULL);
+	p_ply ply = ply_open("turtle.ply", NULL, 0, NULL);
 	if (!ply) return EXIT_FAILURE;
 	if (!ply_read_header(ply)) return EXIT_FAILURE;
 	nvertices = ply_set_read_cb(ply, "vertex", "x", vertex_cb, NULL, 0);
@@ -383,14 +363,13 @@ GLint main(GLint argc, GLchar **argv)
 	ply_set_read_cb(ply, "vertex", "ny", vertex_cb, NULL, 4);
 	ply_set_read_cb(ply, "vertex", "nz", vertex_cb, NULL, 5);
 	ntriangles = ply_set_read_cb(ply, "face", "vertex_indices", face_cb, NULL, 0);
-	ply_set_read_cb(ply, "face", "texcoord", face_cb, NULL, 1);
 	if (!ply_read(ply)) return EXIT_FAILURE;
 	ply_close(ply);
 
 	//Read textures from files
-	texture = SOIL_load_image("bag_tex.png", &wTex, &hTex, &cTex, SOIL_LOAD_RGB);
-	normalmap = SOIL_load_image("normal_cloth_texture.png", &wNor, &hNor, &cNor, SOIL_LOAD_RGB);
-	texture_back = SOIL_load_image("bag_tex_back.png", &wTex, &hTex, &cTex, SOIL_LOAD_RGB);
+	texture = SOIL_load_image("turtle_pan_hrcolor_0.png", &wTex, &hTex, &cTex, SOIL_LOAD_RGB);
+	normalmap = SOIL_load_image("plasma_normals.png", &wNor, &hNor, &cNor, SOIL_LOAD_RGB);
+	texture_back = SOIL_load_image("turtle_pan_hrcolor_180.jpg", &wBak, &hBak, &cBak, SOIL_LOAD_RGB);
 
 #if defined(__linux__)
 	setenv("DISPLAY", ":0", 0);
