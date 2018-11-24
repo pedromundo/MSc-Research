@@ -31,7 +31,7 @@ GLfloat fov = 60.0f, direct_mapping_step = 90.0f;
 std::size_t vertexSize = (3 * sizeof(GLfloat) + 3 * sizeof(GLfloat));
 //MVP Matrices
 glm::mat4 Projection, View, Model;
-glm::vec3 eyePos = glm::vec3(1.5, 1.5, 1.5);
+glm::vec3 eyePos = glm::vec3(1.0, 1.0, 1.0);
 glm::vec3 lightPos = glm::vec3(1.5, 1.5, 1.5);
 
 std::vector<Vertex> *vertices = new std::vector<Vertex>();
@@ -218,12 +218,6 @@ GLint vertex_cb(p_ply_argument argument)
 	else if (currItem == 5)
 	{
 		tempPoint.normal.nz = ply_get_argument_value(argument);
-
-		//Finishing up the face with extra properties
-		glm::vec3 front = glm::vec3(0.0, 0.0, 1.0); //assume that all the objects face Z+
-		glm::vec3 vertex_xzdir = glm::normalize(glm::vec3(tempPoint.x, 0.0, tempPoint.z));
-		GLfloat vertex_angle = glm::degrees(glm::acos(glm::dot(front, vertex_xzdir)));
-		vertex_angle = tempPoint.x < 0 ? 360 - vertex_angle : vertex_angle;
 		vertices->push_back(tempPoint);
 	}
 	return 1;

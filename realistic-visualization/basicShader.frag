@@ -1,7 +1,6 @@
 #version 400
 in vec3 vertPosition_modelspace;
 in vec3 vertNormal_modelspace;
-in float vertVertexRotation;
 
 //Textures and normal
 uniform sampler2D tex_0, tex_90, tex_180, tex_270, nor;
@@ -11,7 +10,8 @@ uniform vec3 lightPos, eyePos;
 
 out vec4 fragColor;
 
-void main(){
+void main()
+{
 	vec4 LightColor = vec4(1.0, 1.0, 1.0, 1.0);
 	vec3 n = normalize(vertNormal_modelspace);
 	vec3 l = normalize(lightPos - vertPosition_modelspace);
@@ -25,32 +25,52 @@ void main(){
 	vec4 MaterialDiffuseColor;
 	vec2 uv;
 
-	if ((vertVertexRotation >= 0 && vertVertexRotation <= 45) || (vertVertexRotation >= 315 && vertVertexRotation <= 360)){
-		//Quadrante frontal
-		uv.x = vertPosition_modelspace.x/3.000+0.475;
-		uv.y = -vertPosition_modelspace.y/2.250+0.535;
+	//Getting the orientation of the vertex to determine which texture to use
+	float vertVertexRotation;
+	const float PI = 3.1415926535897932384626433832795;
+	vec3 front = vec3(0.0, 0.0, 1.0);
+	vec3 vertex_xzdir = normalize(vec3(vertPosition_modelspace.x, 0.0, vertPosition_modelspace.z));
+	float vertex_angle = acos(dot(front, vertex_xzdir));
+
+	if (vertPosition_modelspace.x > 0)
+	{
+		vertVertexRotation = (180 * vertex_angle / PI);
+	}
+	else
+	{
+		vertVertexRotation = 360 - (180 * vertex_angle / PI);
+	}
+
+	if ((vertVertexRotation >= 0 && vertVertexRotation <= 45) || (vertVertexRotation > 315 && vertVertexRotation <= 360))
+	{
+		//Front quadrant
+		uv.x = vertPosition_modelspace.x / 3.000 + 0.475;
+		uv.y = -vertPosition_modelspace.y / 2.250 + 0.535;
 		MaterialDiffuseColor = texture(tex_0, uv);
-	}else if(vertVertexRotation > 45 && vertVertexRotation <= 135){
-		//Quadrante lateral esquerdo
-		uv.x = vertPosition_modelspace.z/3.000+0.500;
-		uv.y = -vertPosition_modelspace.y/2.250+0.528;
+	}
+	else if (vertVertexRotation > 45 && vertVertexRotation <= 135)
+	{
+		//Left-side quadrant
+		uv.x = vertPosition_modelspace.z / 3.000 + 0.500;
+		uv.y = -vertPosition_modelspace.y / 2.250 + 0.528;
 		MaterialDiffuseColor = texture(tex_90, uv);
-	}else if(vertVertexRotation >= 135 && vertVertexRotation <= 225){
-		//Quadrante traseiro
-		uv.x = -vertPosition_modelspace.x/3.000+0.475;
-		uv.y = -vertPosition_modelspace.y/2.250+0.535;
+	}
+	else if (vertVertexRotation > 135 && vertVertexRotation <= 225)
+	{
+		//Back quadrant
+		uv.x = -vertPosition_modelspace.x / 3.000 + 0.475;
+		uv.y = -vertPosition_modelspace.y / 2.250 + 0.535;
 		MaterialDiffuseColor = texture(tex_180, uv);
-	}else if(vertVertexRotation > 225 && vertVertexRotation < 315){
-		//Quadrante lateral direito
-		uv.x = -vertPosition_modelspace.z/3.000+0.500;
-		uv.y = -vertPosition_modelspace.y/2.250+0.550;
+	}
+	else if (vertVertexRotation > 225 && vertVertexRotation <= 315)
+	{
+		//Right-side quadrant
+		uv.x = -vertPosition_modelspace.z / 3.000 + 0.500;
+		uv.y = -vertPosition_modelspace.y / 2.250 + 0.550;
 		MaterialDiffuseColor = texture(tex_270, uv);
 	}
 
-	//MaterialDiffuseColor = vec4(1.0);
-
 	//Interpolating the rotation (in Y) between 0..1
-	//MaterialDiffuseColor = vec4(vec3(vertVertexRotation/360),1);
 	vec4 MaterialAmbientColor = vec4(0.2, 0.2, 0.2, 1.0) * MaterialDiffuseColor;
 	vec4 MaterialSpecularColor = vec4(1.0, 1.0, 1.0, 1.0);
 
