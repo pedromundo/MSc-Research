@@ -13,7 +13,7 @@ typedef struct {
 	GLfloat a;
 } Color;
 
-typedef struct {	
+typedef struct {
 	GLfloat u;
 	GLfloat v;
 } TexCoord;
@@ -29,13 +29,10 @@ typedef struct {
 	GLfloat y;
 	GLfloat z;
 	Normal normal;
-	TexCoord uv;	
-	glm::vec3 tan;
-	glm::vec3 bin;
 } Vertex;
 
-typedef struct {	
-	GLuint f1;	
+typedef struct {
+	GLuint f1;
 	GLuint f2;
 	GLuint f3;
 } Face;

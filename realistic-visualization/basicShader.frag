@@ -1,39 +1,50 @@
 #version 400
-in vec2 vertTexCoord;
-in vec3 vertLightDirection_tangentspace;
-in vec3 vertEyeDirection_tangentspace;
 in vec3 vertPosition_modelspace;
-in vec3 vertNormal_tangentspace;
+in vec3 vertNormal_modelspace;
 in float vertVertexRotation;
 
-//Texture and normal
+//Textures and normal
 uniform sampler2D tex_0, tex_90, tex_180, tex_270, nor;
+//Lighting parameters
 uniform uint lightDiffusePower, lightSpecularPower, lightDistance;
+uniform vec3 lightPos, eyePos;
 
 out vec4 fragColor;
 
-void main()
-{
+void main(){
 	vec4 LightColor = vec4(1.0, 1.0, 1.0, 1.0);
-	vec3 n = normalize(vertNormal_tangentspace);
-	vec3 l = normalize(vertLightDirection_tangentspace);
+	vec3 n = normalize(vertNormal_modelspace);
+	vec3 l = normalize(lightPos - vertPosition_modelspace);
 
 	float cosTheta = clamp(dot(n, l), 0, 1);
 
-	vec3 E = -normalize(vertEyeDirection_tangentspace);
+	vec3 E = normalize(eyePos - vertPosition_modelspace);
 	vec3 R = reflect(-l, n);
 	float cosAlpha = clamp(dot(E, R), 0, 1);
 
 	vec4 MaterialDiffuseColor;
+	vec2 uv;
 
 	if ((vertVertexRotation >= 0 && vertVertexRotation <= 45) || (vertVertexRotation >= 315 && vertVertexRotation <= 360)){
-		MaterialDiffuseColor = texture(tex_0, vertTexCoord);
+		//Quadrante frontal
+		uv.x = vertPosition_modelspace.x/3.000+0.475;
+		uv.y = -vertPosition_modelspace.y/2.250+0.535;
+		MaterialDiffuseColor = texture(tex_0, uv);
 	}else if(vertVertexRotation > 45 && vertVertexRotation <= 135){
-		MaterialDiffuseColor = texture(tex_90, vertTexCoord);
+		//Quadrante lateral esquerdo
+		uv.x = vertPosition_modelspace.z/3.000+0.500;
+		uv.y = -vertPosition_modelspace.y/2.250+0.528;
+		MaterialDiffuseColor = texture(tex_90, uv);
 	}else if(vertVertexRotation >= 135 && vertVertexRotation <= 225){
-		MaterialDiffuseColor = texture(tex_180, vertTexCoord);
+		//Quadrante traseiro
+		uv.x = -vertPosition_modelspace.x/3.000+0.475;
+		uv.y = -vertPosition_modelspace.y/2.250+0.535;
+		MaterialDiffuseColor = texture(tex_180, uv);
 	}else if(vertVertexRotation > 225 && vertVertexRotation < 315){
-		MaterialDiffuseColor = texture(tex_270, vertTexCoord);
+		//Quadrante lateral direito
+		uv.x = -vertPosition_modelspace.z/3.000+0.500;
+		uv.y = -vertPosition_modelspace.y/2.250+0.550;
+		MaterialDiffuseColor = texture(tex_270, uv);
 	}
 
 	//MaterialDiffuseColor = vec4(1.0);
