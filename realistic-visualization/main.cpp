@@ -27,11 +27,11 @@ GLulong nvertices, ntriangles;
 GLint wTex, hTex, cTex, wNor, hNor, cNor;
 //Handlers for the VBOs, FBOs, texArrays shader programs
 GLuint VertexArrayIDs[1], vertexbuffers[2], textureArrays[5], basicShader;
-GLfloat fov = 60.0f, direct_mapping_step = 90.0f;
+GLfloat fov = 57.716f;
 std::size_t vertexSize = (3 * sizeof(GLfloat) + 3 * sizeof(GLfloat));
 //MVP Matrices
 glm::mat4 Projection, View, Model;
-glm::vec3 eyePos = glm::vec3(1.0, 1.0, 1.0);
+glm::vec3 eyePos = glm::vec3(0.0, 0.0, 1.0);
 glm::vec3 lightPos = glm::vec3(1.5, 1.5, 1.5);
 
 std::vector<Vertex> *vertices = new std::vector<Vertex>();

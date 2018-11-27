@@ -44,30 +44,46 @@ void main()
 	if ((vertVertexRotation >= 0 && vertVertexRotation <= 45) || (vertVertexRotation > 315 && vertVertexRotation <= 360))
 	{
 		//Front quadrant
-		uv.x = vertPosition_modelspace.x / 3.000 + 0.475;
-		uv.y = -vertPosition_modelspace.y / 2.250 + 0.535;
+		uv = vec2(vertPosition_modelspace.x / 3.000 + 0.475,-vertPosition_modelspace.y / 2.250 + 0.535);
 		MaterialDiffuseColor = texture(tex_0, uv);
 	}
 	else if (vertVertexRotation > 45 && vertVertexRotation <= 135)
 	{
 		//Left-side quadrant
-		uv.x = vertPosition_modelspace.z / 3.000 + 0.500;
-		uv.y = -vertPosition_modelspace.y / 2.250 + 0.528;
+		uv = vec2(vertPosition_modelspace.z / 3.000 + 0.500,-vertPosition_modelspace.y / 2.250 + 0.528);
 		MaterialDiffuseColor = texture(tex_90, uv);
 	}
 	else if (vertVertexRotation > 135 && vertVertexRotation <= 225)
 	{
 		//Back quadrant
-		uv.x = -vertPosition_modelspace.x / 3.000 + 0.475;
-		uv.y = -vertPosition_modelspace.y / 2.250 + 0.535;
+		uv = vec2(-vertPosition_modelspace.x / 3.000 + 0.475,-vertPosition_modelspace.y / 2.250 + 0.535);
 		MaterialDiffuseColor = texture(tex_180, uv);
 	}
 	else if (vertVertexRotation > 225 && vertVertexRotation <= 315)
 	{
 		//Right-side quadrant
-		uv.x = -vertPosition_modelspace.z / 3.000 + 0.500;
-		uv.y = -vertPosition_modelspace.y / 2.250 + 0.550;
+		uv = vec2(-vertPosition_modelspace.z / 3.000 + 0.500,-vertPosition_modelspace.y / 2.250 + 0.550);
 		MaterialDiffuseColor = texture(tex_270, uv);
+	}
+
+	if (vertVertexRotation > 44 && vertVertexRotation < 45){
+		vec2 uv2 = vec2(vertPosition_modelspace.z / 3.000 + 0.500,-vertPosition_modelspace.y / 2.250 + 0.528);
+		MaterialDiffuseColor = mix(texture(tex_0, uv),texture(tex_90, uv2),vertVertexRotation-44);
+	}
+
+	if (vertVertexRotation > 134 && vertVertexRotation < 135){
+		vec2 uv2 = vec2(-vertPosition_modelspace.x / 3.000 + 0.475,-vertPosition_modelspace.y / 2.250 + 0.535);
+		MaterialDiffuseColor = mix(texture(tex_90, uv),texture(tex_180, uv2),vertVertexRotation-134);
+	}
+
+	if (vertVertexRotation > 224 && vertVertexRotation < 225){
+		vec2 uv2 = vec2(-vertPosition_modelspace.z / 3.000 + 0.500,-vertPosition_modelspace.y / 2.250 + 0.550);
+		MaterialDiffuseColor = mix(texture(tex_180, uv),texture(tex_270, uv2),vertVertexRotation-224);
+	}
+
+	if (vertVertexRotation > 314 && vertVertexRotation < 315){
+		vec2 uv2 = vec2(vertPosition_modelspace.x / 3.000 + 0.475,-vertPosition_modelspace.y / 2.250 + 0.535);
+		MaterialDiffuseColor = mix(texture(tex_270, uv),texture(tex_0, uv2),vertVertexRotation-314);
 	}
 
 	//Interpolating the rotation (in Y) between 0..1
