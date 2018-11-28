@@ -7,6 +7,7 @@ uniform sampler2D tex_0, tex_90, tex_180, tex_270, nor;
 //Lighting parameters
 uniform uint lightDiffusePower, lightSpecularPower, lightDistance;
 uniform vec3 lightPos, eyePos;
+uniform mat4 P_photo;
 
 out vec4 fragColor;
 
@@ -41,57 +42,59 @@ void main()
 		vertVertexRotation = 360 - (180 * vertex_angle / PI);
 	}
 
+	vec4 vertPosition_perspective = P_photo * vec4(vertPosition_modelspace,1.0);
+
 	if ((vertVertexRotation >= 0 && vertVertexRotation <= 45) || (vertVertexRotation > 315 && vertVertexRotation <= 360))
 	{
 		//Front quadrant
-		uv = vec2(vertPosition_modelspace.x / 3.000 + 0.475,-vertPosition_modelspace.y / 2.250 + 0.535);
+		uv = vec2(vertPosition_perspective.x / 3.000 + 0.470,-vertPosition_perspective.y / 4.000 + 0.530);
 		MaterialDiffuseColor = texture(tex_0, uv);
 	}
 	else if (vertVertexRotation > 45 && vertVertexRotation <= 135)
 	{
 		//Left-side quadrant
-		uv = vec2(vertPosition_modelspace.z / 3.000 + 0.500,-vertPosition_modelspace.y / 2.250 + 0.528);
+		uv = vec2(-vertPosition_perspective.z / 2.000 + 0.350,-vertPosition_perspective.y / 4.000 + 0.523);
 		MaterialDiffuseColor = texture(tex_90, uv);
 	}
 	else if (vertVertexRotation > 135 && vertVertexRotation <= 225)
 	{
 		//Back quadrant
-		uv = vec2(-vertPosition_modelspace.x / 3.000 + 0.475,-vertPosition_modelspace.y / 2.250 + 0.535);
+		uv = vec2(-vertPosition_perspective.x / 3.000 + 0.470,-vertPosition_perspective.y / 4.000 + 0.530);
 		MaterialDiffuseColor = texture(tex_180, uv);
 	}
 	else if (vertVertexRotation > 225 && vertVertexRotation <= 315)
 	{
 		//Right-side quadrant
-		uv = vec2(-vertPosition_modelspace.z / 3.000 + 0.500,-vertPosition_modelspace.y / 2.250 + 0.550);
+		uv = vec2(-vertPosition_perspective.z / 3.000 + 0.470,-vertPosition_perspective.y / 4.000 + 0.530);
 		MaterialDiffuseColor = texture(tex_270, uv);
 	}
 
-	if (vertVertexRotation > 44 && vertVertexRotation < 45){
-		vec2 uv2 = vec2(vertPosition_modelspace.z / 3.000 + 0.500,-vertPosition_modelspace.y / 2.250 + 0.528);
-		MaterialDiffuseColor = mix(texture(tex_0, uv),texture(tex_90, uv2),vertVertexRotation-44);
+	//Feathering texture boundaries
+	/*if (vertVertexRotation > 43 && vertVertexRotation < 45){
+		vec2 uv2 = vec2(vertPosition_perspective.z / 3.000 + 0.500,-vertPosition_perspective.y / 2.250 + 0.528);
+		MaterialDiffuseColor = mix(texture(tex_0, uv),texture(tex_90, uv2),(vertVertexRotation-43)/2);
 	}
 
-	if (vertVertexRotation > 134 && vertVertexRotation < 135){
-		vec2 uv2 = vec2(-vertPosition_modelspace.x / 3.000 + 0.475,-vertPosition_modelspace.y / 2.250 + 0.535);
-		MaterialDiffuseColor = mix(texture(tex_90, uv),texture(tex_180, uv2),vertVertexRotation-134);
+	if (vertVertexRotation > 133 && vertVertexRotation < 135){
+		vec2 uv2 = vec2(-vertPosition_perspective.x / 3.000 + 0.475,-vertPosition_perspective.y / 2.250 + 0.535);
+		MaterialDiffuseColor = mix(texture(tex_90, uv),texture(tex_180, uv2),(vertVertexRotation-133)/2);
 	}
 
-	if (vertVertexRotation > 224 && vertVertexRotation < 225){
-		vec2 uv2 = vec2(-vertPosition_modelspace.z / 3.000 + 0.500,-vertPosition_modelspace.y / 2.250 + 0.550);
-		MaterialDiffuseColor = mix(texture(tex_180, uv),texture(tex_270, uv2),vertVertexRotation-224);
+	if (vertVertexRotation > 223 && vertVertexRotation < 225){
+		vec2 uv2 = vec2(-vertPosition_perspective.z / 3.000 + 0.500,-vertPosition_perspective.y / 2.250 + 0.550);
+		MaterialDiffuseColor = mix(texture(tex_180, uv),texture(tex_270, uv2),(vertVertexRotation-223)/2);
 	}
 
-	if (vertVertexRotation > 314 && vertVertexRotation < 315){
-		vec2 uv2 = vec2(vertPosition_modelspace.x / 3.000 + 0.475,-vertPosition_modelspace.y / 2.250 + 0.535);
-		MaterialDiffuseColor = mix(texture(tex_270, uv),texture(tex_0, uv2),vertVertexRotation-314);
-	}
+	if (vertVertexRotation > 313 && vertVertexRotation < 315){
+		vec2 uv2 = vec2(vertPosition_perspective.x / 3.000 + 0.475,-vertPosition_perspective.y / 2.250 + 0.535);
+		MaterialDiffuseColor = mix(texture(tex_270, uv),texture(tex_0, uv2),(vertVertexRotation-313)/2);
+	}*/
 
-	//Interpolating the rotation (in Y) between 0..1
 	vec4 MaterialAmbientColor = vec4(0.2, 0.2, 0.2, 1.0) * MaterialDiffuseColor;
 	vec4 MaterialSpecularColor = vec4(1.0, 1.0, 1.0, 1.0);
 
 	vec4 color = MaterialAmbientColor +
 				 MaterialDiffuseColor * LightColor * lightDiffusePower * cosTheta / (lightDistance * lightDistance) +
-				 MaterialSpecularColor * LightColor * lightSpecularPower * pow(cosAlpha, 10) / (lightDistance * lightDistance);
+				 MaterialSpecularColor * LightColor * lightSpecularPower * pow(cosAlpha, 30) / (lightDistance * lightDistance);
 	fragColor = color;
 }

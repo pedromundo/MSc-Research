@@ -30,8 +30,8 @@ GLuint VertexArrayIDs[1], vertexbuffers[2], textureArrays[5], basicShader;
 GLfloat fov = 57.716f;
 std::size_t vertexSize = (3 * sizeof(GLfloat) + 3 * sizeof(GLfloat));
 //MVP Matrices
-glm::mat4 Projection, View, Model;
-glm::vec3 eyePos = glm::vec3(0.0, 0.0, 1.0);
+glm::mat4 Projection, View, Model, Projection_Photo;
+glm::vec3 eyePos = glm::vec3(1.0, 0.0, 0.0);
 glm::vec3 lightPos = glm::vec3(1.5, 1.5, 1.5);
 
 std::vector<Vertex> *vertices = new std::vector<Vertex>();
@@ -53,9 +53,12 @@ GLvoid shaderPlumbing()
 	//MV matrix
 	GLuint MVId = glGetUniformLocation(basicShader, "MV");
 	glUniformMatrix3fv(MVId, 1, GL_FALSE, glm::value_ptr(glm::mat3(View * Model)));
-	//V Matrix
+	//M Matrix
 	GLuint MId = glGetUniformLocation(basicShader, "M");
 	glUniformMatrix3fv(MId, 1, GL_FALSE, glm::value_ptr(glm::mat3(Model)));
+	//P Matrix
+	GLuint PpId = glGetUniformLocation(basicShader, "P_photo");
+	glUniformMatrix4fv(PpId, 1, GL_FALSE, glm::value_ptr(Projection_Photo));
 	//Eye Position
 	GLuint eyePosId = glGetUniformLocation(basicShader, "eyePos");
 	glUniform3f(eyePosId, eyePos.x, eyePos.y, eyePos.z);
@@ -161,7 +164,7 @@ GLvoid process(GLvoid)
 {
 	if (g_bRotateModel)
 	{
-		View = glm::rotate(View, -0.005f, glm::vec3(0.0, 1.0, 0.0));
+		View = glm::rotate(View, -0.05f, glm::vec3(0.0, 1.0, 0.0));
 	}
 }
 
@@ -324,6 +327,7 @@ GLint main(GLint argc, GLchar **argv)
 		glm::vec3(0, 0, 0),
 		glm::vec3(0, 1, 0));
 	Projection = glm::perspective(glm::radians(fov), (GLfloat)wWidth / (GLfloat)wHeight, 0.1f, 100.0f);
+	Projection_Photo = glm::perspective(glm::radians(57.716f), 4032.0f/3024.0f, 0.1f, 100.0f);
 
 	//Read model from .ply file
 	p_ply ply = ply_open("turtle.ply", NULL, 0, NULL);
