@@ -31,7 +31,7 @@ GLfloat fov = 57.716f;
 std::size_t vertexSize = (3 * sizeof(GLfloat) + 3 * sizeof(GLfloat));
 //MVP Matrices
 glm::mat4 Projection, View, Model, Projection_Photo;
-glm::vec3 eyePos = glm::vec3(1.0, 0.0, 0.0);
+glm::vec3 eyePos = glm::vec3(-1.0, 0.0, 0.0);
 glm::vec3 lightPos = glm::vec3(1.5, 1.5, 1.5);
 
 std::vector<Vertex> *vertices = new std::vector<Vertex>();
@@ -348,9 +348,9 @@ GLint main(GLint argc, GLchar **argv)
 
 	//Read textures from files
 	texture_0 = SOIL_load_image("turtle_pan_hrcolor_0.jpg", &wTex, &hTex, &cTex, SOIL_LOAD_RGB);
-	texture_90 = SOIL_load_image("turtle_pan_hrcolor_80.jpg", &wTex, &hTex, &cTex, SOIL_LOAD_RGB);
+	texture_90 = SOIL_load_image("turtle_pan_hrcolor_90.jpg", &wTex, &hTex, &cTex, SOIL_LOAD_RGB);
 	texture_180 = SOIL_load_image("turtle_pan_hrcolor_180.jpg", &wTex, &hTex, &cTex, SOIL_LOAD_RGB);
-	texture_270 = SOIL_load_image("turtle_pan_hrcolor_260.jpg", &wTex, &hTex, &cTex, SOIL_LOAD_RGB);
+	texture_270 = SOIL_load_image("turtle_pan_hrcolor_270.jpg", &wTex, &hTex, &cTex, SOIL_LOAD_RGB);
 	normalmap = SOIL_load_image("plasma_normals.jpg", &wNor, &hNor, &cNor, SOIL_LOAD_RGB);
 #if defined(__linux__)
 	setenv("DISPLAY", ":0", 0);
