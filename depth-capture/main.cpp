@@ -1,4 +1,4 @@
-#include <libfreenect_sync.h>
+#include <libfreenect/libfreenect_sync.h>
 #include <opencv2/opencv.hpp>
 #include <sstream>
 
@@ -88,7 +88,7 @@ void show_depth (uint16_t *depth) {
 void show_rgb (uchar *rgb) {
     Mat img_bgr_mat;
     Mat img_rgb_mat = Mat(kinect,CV_8UC3,rgb);
-    cvtColor(img_rgb_mat, img_bgr_mat, CV_RGB2BGR);
+    cvtColor(img_rgb_mat, img_bgr_mat, cv::COLOR_RGB2BGR);
     imshow("RGB", img_bgr_mat);
 }
 
@@ -163,7 +163,7 @@ int save_rgb(uchar *rgb) {
     Mat img_bgr_mat;
     std::ostringstream oss;
     oss << capture_name << "_color_" << count_color*capture_step << ".png";
-    cvtColor(img_rgb_mat, img_bgr_mat, CV_RGB2BGR);
+    cvtColor(img_rgb_mat, img_bgr_mat, cv::COLOR_RGB2BGR);
     imwrite(oss.str(), img_bgr_mat);
     printf("%s saved!\n", oss.str().c_str());
     fflush(stdout);
@@ -300,8 +300,8 @@ int main(int argc, char **argv)
 
     std::cout << capture_name << " " << capture_step << std::endl;
 
-    namedWindow("RGB", CV_WINDOW_AUTOSIZE);
-    namedWindow("DEPTH", CV_WINDOW_AUTOSIZE);
+    namedWindow("RGB", cv::WINDOW_AUTOSIZE);
+    namedWindow("DEPTH", cv::WINDOW_AUTOSIZE);
 
     kinect.width = 640;
     kinect.height = 480;
