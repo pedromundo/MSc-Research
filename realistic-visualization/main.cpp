@@ -31,8 +31,8 @@ GLfloat fov = 57.716f;
 std::size_t vertexSize = (3 * sizeof(GLfloat) + 3 * sizeof(GLfloat));
 //MVP Matrices
 glm::mat4 Projection, View, Model, Projection_Photo;
-glm::vec3 eyePos = glm::vec3(-1.0, 0.0, 0.0);
-glm::vec3 lightPos = glm::vec3(1.5, 1.5, 1.5);
+glm::vec3 eyePos = glm::vec3(0.0, 0.0, 1.0);
+glm::vec3 lightPos = glm::vec3(0.0, 0.0, 1.0);
 
 std::vector<Vertex> *vertices = new std::vector<Vertex>();
 std::vector<Face> *faces = new std::vector<Face>();

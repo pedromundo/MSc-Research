@@ -74,24 +74,21 @@ void main()
 		vec2 uv2 = vec2(vertPosition_perspective.z / 2.000 + 0.590,-vertPosition_perspective.y / 4.000 + 0.535);
 		MaterialDiffuseColor = mix(texture(tex_0, uv),texture(tex_90, uv2),(vertVertexRotation-43)/2);
 	}
-
-	if (vertVertexRotation > 133 && vertVertexRotation < 135){
+	else if (vertVertexRotation > 133 && vertVertexRotation < 135){
 		vec2 uv2 = vec2(-vertPosition_perspective.x / 3.500 + 0.490,-vertPosition_perspective.y / 4.000 + 0.530);
 		MaterialDiffuseColor = mix(texture(tex_90, uv),texture(tex_180, uv2),(vertVertexRotation-133)/2);
 	}
-
-	if (vertVertexRotation > 223 && vertVertexRotation < 225){
+	else if (vertVertexRotation > 223 && vertVertexRotation < 225){
 		vec2 uv2 = vec2(-vertPosition_perspective.z / 2.000 + 0.350,-vertPosition_perspective.y / 4.000 + 0.525);
 		MaterialDiffuseColor = mix(texture(tex_180, uv),texture(tex_270, uv2),(vertVertexRotation-223)/2);
 	}
-
-	if (vertVertexRotation > 313 && vertVertexRotation < 315){
+	else if (vertVertexRotation > 313 && vertVertexRotation < 315){
 		vec2 uv2 = vec2(vertPosition_perspective.x / 3.000 + 0.470,-vertPosition_perspective.y / 4.000 + 0.530);
 		MaterialDiffuseColor = mix(texture(tex_270, uv),texture(tex_0, uv2),(vertVertexRotation-313)/2);
 	}
 
 	vec4 MaterialAmbientColor = vec4(0.2, 0.2, 0.2, 1.0) * MaterialDiffuseColor;
-	vec4 MaterialSpecularColor = vec4(1.0, 1.0, 1.0, 1.0);
+	vec4 MaterialSpecularColor = vec4(0.663, 0.553, 0.467, 1.0);
 
 	vec4 color = MaterialAmbientColor +
 				 MaterialDiffuseColor * LightColor * lightDiffusePower * cosTheta / (lightDistance * lightDistance) +
