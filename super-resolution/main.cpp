@@ -11,7 +11,6 @@
 using namespace cv;
 
 //Adapted from https://stackoverflow.com/questions/7616511/
-//I really should get more acquainted with C++'s stl1
 float mean(std::vector<float> &v)
 {
     double sum = std::accumulate(v.begin(), v.end(), 0.0);
@@ -170,7 +169,7 @@ int main(int argc, char **argv)
     {
         std::ostringstream oss_in;
         oss_in << capture_name << "_burst_" << view_angle << "_" << i << ".png";
-        lr_images[i] = imread(oss_in.str(), CV_LOAD_IMAGE_ANYDEPTH);
+        lr_images[i] = imread(oss_in.str(), cv::IMREAD_ANYDEPTH);
         lr_images[i].convertTo(lr_images[i], CV_32FC1);
         alignment_matrices[i] = Mat::eye(2, 3, CV_32F);
 
@@ -201,17 +200,17 @@ int main(int argc, char **argv)
     //version, ignoring this for now since the results are good
     for (size_t i = 0; i < SR_SIZE; ++i)
     {
-        //Upsample - can use pyramids or perform a simple scale operation
-        //results were exactly the same, still gotta find out why
-        cv::resize(lr_images[i], lr_images_upsampled[i], lr_images[i].size() * RESAMPLE_FACTOR, 0, 0, INTER_NEAREST);
-
         //Warp - Simplified to rigid transform because we aim to have as little
         //translation and rotation between the LR images as possible while still
         //modifying the intrinsics enough to have complementary data
         if (i > 0)
         {
-            warpAffine(lr_images[i], lr_images[i], alignment_matrices[i], lr_images[i].size(), CV_WARP_INVERSE_MAP);
+            warpAffine(lr_images[i], lr_images[i], alignment_matrices[i], lr_images[i].size(), cv::WARP_INVERSE_MAP);
         }
+
+        //Upsample - can use pyramids or perform a simple scale operation
+        //results were exactly the same, still gotta find out why
+        cv::resize(lr_images[i], lr_images_upsampled[i], lr_images[i].size() * RESAMPLE_FACTOR, 0, 0, INTER_NEAREST);
     }
 
     //Reconstruction Phase - For now, simply averaging the images, this reduces the
