@@ -59,6 +59,8 @@ int main(int argc, char **argv)
         Eigen::Matrix3f rotation(Eigen::AngleAxisf(-DEG2RAD(i * capture_step + i * 1.17), Eigen::Vector3f::UnitY()));
         transform.rotate(rotation);
         pcl::transformPointCloud(*point_clouds[i], *point_clouds[i], transform);
+        pcl::io::savePLYFileASCII(capture_name + std::to_string(i * capture_step) +  "_rotated.ply", *point_clouds[i]);
+
     }
 
     //Fine alignment via ICP/ICP-NL -- both make it worse, simply rotating according
@@ -67,17 +69,6 @@ int main(int argc, char **argv)
     for (size_t i = 1; i < num_captures; ++i)
     {
         PointCloudWithNormals aligned(new pcl::PointCloud<pcl::PointXYZRGBNormal>);
-        //ICP Alignment and Registration
-        // pcl::IterativeClosestPoint<pcl::PointXYZRGBNormal, pcl::PointXYZRGBNormal> icp;
-        // icp.setInputSource(point_clouds[i]);
-        // icp.setInputTarget(accumulated);
-        // icp.setEuclideanFitnessEpsilon(1);
-        // icp.setMaximumIterations(200);
-        // icp.setTransformationEpsilon(1e-9);
-        // icp.align(*aligned);
-        // cout << (i*capture_step) << " has converged -- "<< " score: " << icp.getFitnessScore() << endl;
-        // cout << icp.getFinalTransformation() << endl;
-        // *accumulated = *accumulated + *aligned;
         *accumulated = *accumulated + *point_clouds[i]; //for tests without icp
     }
 

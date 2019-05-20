@@ -1,4 +1,4 @@
-#include <libfreenect/libfreenect_sync.h>
+#include <libfreenect_sync.h>
 #include <opencv2/opencv.hpp>
 #include <sstream>
 
