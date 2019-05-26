@@ -1,4 +1,3 @@
-#include <libfreenect/libfreenect_sync.h>
 #include <omp.h>
 #include <unistd.h>
 
@@ -9,6 +8,7 @@
 #include <iostream>
 #include <sstream>
 
+#include <libfreenect/libfreenect_sync.h>
 #include <opencv2/core.hpp>
 #include <opencv2/highgui.hpp>
 #include <opencv2/imgcodecs.hpp>
