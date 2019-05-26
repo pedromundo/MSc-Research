@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.0)
 
-project(depth_capturer)
+project(depth_capture)
 
 find_package(OpenCV REQUIRED core imgproc highgui imgcodecs)
 find_package(libfreenect REQUIRED)
