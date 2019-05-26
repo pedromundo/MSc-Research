@@ -5,3 +5,4 @@ rotate-align/rotate
 realistic-visualization/mapping
 *.o
 .vscode/
+build/
